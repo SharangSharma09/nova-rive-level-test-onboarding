@@ -1,0 +1,14 @@
+#:schema https://conductor.build/schemas/settings.repo.schema.json
+
+# Copy .env.local (gitignored) into every new workspace so agents have API keys
+file_include_globs = ".env.local\n"
+
+[scripts]
+# Install npm dependencies in the workspace
+setup = "npm install"
+
+# Start Next.js dev server on the workspace-assigned port
+run = "./node_modules/.bin/next dev --port $CONDUCTOR_PORT"
+
+# Multiple workspaces can run safely in parallel — no shared DB or fixed port
+run_mode = "concurrent"

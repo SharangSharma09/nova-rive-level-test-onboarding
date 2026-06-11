@@ -19,6 +19,7 @@ interface V3Result {
   semiFormal?: string;
   formal?: string;
   // translate
+  sourceText?: string;
   translation?: string;
   // grammar
   isCorrect?: boolean;
@@ -26,6 +27,7 @@ interface V3Result {
   corrected?: string;
   tip?: string;
   // meaning
+  phrase?: string;
   meaning?: string;
 }
 
@@ -64,11 +66,61 @@ const FEATURE_META: Record<Feature, { label: string; emoji: string }> = {
   meaning:   { label: "Find Meaning",         emoji: "📖" },
 };
 
+function diffWordsOriginal(original: string, corrected: string): { word: string; changed: boolean }[] {
+  const wa = original.split(/\s+/);
+  const wb = corrected.split(/\s+/);
+  const dp: number[][] = Array(wa.length + 1).fill(null).map(() => Array(wb.length + 1).fill(0));
+  for (let i = 1; i <= wa.length; i++) {
+    for (let j = 1; j <= wb.length; j++) {
+      if (wa[i - 1].toLowerCase().replace(/[^a-z]/g, "") === wb[j - 1].toLowerCase().replace(/[^a-z]/g, "")) {
+        dp[i][j] = dp[i - 1][j - 1] + 1;
+      } else {
+        dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+      }
+    }
+  }
+  const changed = new Array(wa.length).fill(true);
+  let i = wa.length, j = wb.length;
+  while (i > 0 && j > 0) {
+    if (wa[i - 1].toLowerCase().replace(/[^a-z]/g, "") === wb[j - 1].toLowerCase().replace(/[^a-z]/g, "")) {
+      changed[i - 1] = false;
+      i--; j--;
+    } else if (dp[i - 1][j] > dp[i][j - 1]) {
+      i--;
+    } else {
+      j--;
+    }
+  }
+  return wa.map((word, idx) => ({ word, changed: changed[idx] }));
+}
+
 const PANEL_STYLE = {
   background: "rgba(14, 14, 20, 0.97)",
-  border: "1px solid rgba(255,255,255,0.08)",
+  border: "1px solid rgba(124,58,237,0.55)",
   boxShadow: "0 24px 64px rgba(0,0,0,0.7), 0 0 0 1px rgba(109,40,217,0.15)",
 };
+
+const CopyIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+  </svg>
+);
+
+const CloseIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <line x1="18" y1="6" x2="6" y2="18"/>
+    <line x1="6" y1="6" x2="18" y2="18"/>
+  </svg>
+);
+
+const SpeakerIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+    <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
+    <path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>
+  </svg>
+);
 
 export default function FloatingWidgetV3() {
   const [state, setState] = useState<V3State>("closed");
@@ -76,6 +128,13 @@ export default function FloatingWidgetV3() {
   const [result, setResult] = useState<V3Result | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [activeDraftText, setActiveDraftText] = useState<string | null>(null);
+  const [translateEditState, setTranslateEditState] = useState<"idle" | "opening" | "done">("idle");
+  const [grammarCopied, setGrammarCopied] = useState(false);
+  const [translateCopied, setTranslateCopied] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [grammarContinueState, setGrammarContinueState] = useState<"idle" | "opening">("idle");
+  const [meaningContinueState, setMeaningContinueState] = useState<"idle" | "opening">("idle");
 
   const dragging = useRef(false);
   const dragOffset = useRef({ x: 0, y: 0 });
@@ -201,7 +260,7 @@ export default function FloatingWidgetV3() {
       console.log("[v3] response:", data);
 
       setResult(data);
-
+      setActiveDraftText(null);
       setState("result");
     } catch (e) {
       console.error("[v3] API error:", e);
@@ -216,6 +275,7 @@ export default function FloatingWidgetV3() {
     recorderRef.current = null;
     analyserRef.current = null;
     stopSpeaking().catch(console.error);
+    setIsSpeaking(false);
     setResult(null);
     setErrorMsg(null);
     setCopied(false);
@@ -227,6 +287,22 @@ export default function FloatingWidgetV3() {
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   }, []);
+
+  const handleSpeak = useCallback(async (text: string) => {
+    if (isSpeaking) {
+      await stopSpeaking();
+      setIsSpeaking(false);
+      return;
+    }
+    setIsSpeaking(true);
+    try {
+      await speak(text);
+    } catch (e) {
+      console.error("[v3] TTS error", e);
+    } finally {
+      setIsSpeaking(false);
+    }
+  }, [isSpeaking]);
 
   useEffect(() => {
     return () => {
@@ -290,7 +366,7 @@ export default function FloatingWidgetV3() {
           {state === "analyzing" && (
             <div className="flex items-center justify-center gap-3 px-6 py-4 rounded-2xl w-72" style={PANEL_STYLE}>
               <div className="w-5 h-5 rounded-full border-2 border-purple-400 border-t-transparent animate-spin" />
-              <span className="text-sm font-medium" style={{ color: "rgba(255,255,255,0.7)" }}>Listening…</span>
+              <span className="text-sm font-medium" style={{ color: "rgba(255,255,255,0.7)" }}>Thinking…</span>
             </div>
           )}
 
@@ -306,21 +382,30 @@ export default function FloatingWidgetV3() {
 
           {/* Result */}
           {state === "result" && result && (() => {
-            const meta = FEATURE_META[result.feature];
+            const speakableText =
+              result.feature === "draft" ? (activeDraftText ?? result.semiFormal ?? result.casual ?? result.formal ?? "") :
+              result.feature === "translate" ? (result.translation || "") :
+              result.feature === "grammar" ? (result.corrected || result.original || "") :
+              result.feature === "meaning" ? (result.phrase || result.transcription || "") : "";
+
             return (
-              <div className="w-80 rounded-3xl p-4 flex flex-col gap-3" style={PANEL_STYLE}>
-                {/* Header */}
+              <div className="w-80 rounded-3xl p-4 flex flex-col gap-3" style={{ ...PANEL_STYLE, maxHeight: "80vh", overflowY: "auto" }}>
+                {/* Header — × close + speaker */}
                 <div className="flex items-center justify-between">
                   <button
                     onClick={handleReset}
-                    className="text-lg transition-all active:opacity-60"
-                    style={{ color: "rgba(255,255,255,0.4)", background: "none" }}
+                    className="w-8 h-8 flex items-center justify-center rounded-full transition-all active:opacity-60"
+                    style={{ color: "rgba(255,255,255,0.5)", background: "rgba(255,255,255,0.08)" }}
                   >
-                    ←
+                    <CloseIcon />
                   </button>
-                  <span className="text-xs font-semibold px-2 py-1 rounded-full" style={{ background: "rgba(109,40,217,0.3)", color: "rgba(139,92,246,0.9)" }}>
-                    {meta.emoji} {meta.label}
-                  </span>
+                  <button
+                    onClick={() => handleSpeak(speakableText)}
+                    className={`w-8 h-8 flex items-center justify-center rounded-full transition-all active:opacity-60 ${isSpeaking ? "animate-pulse" : ""}`}
+                    style={{ color: isSpeaking ? "#a78bfa" : "rgba(255,255,255,0.5)", background: isSpeaking ? "rgba(109,40,217,0.35)" : "rgba(255,255,255,0.08)" }}
+                  >
+                    <SpeakerIcon />
+                  </button>
                 </div>
 
                 {/* Draft */}
@@ -332,121 +417,179 @@ export default function FloatingWidgetV3() {
                       semiFormal: result.semiFormal!,
                       formal: result.formal!,
                     }}
+                    onActiveChange={setActiveDraftText}
                   />
                 )}
 
                 {/* Translate */}
                 {result.feature === "translate" && result.translation && (
                   <div className="flex flex-col gap-3">
-                    <span className="text-xs uppercase tracking-wider font-semibold" style={{ color: "rgba(255,255,255,0.35)" }}>
-                      English translation
-                    </span>
-                    <p className="text-base font-medium leading-relaxed whitespace-pre-wrap" style={{ color: "rgba(255,255,255,0.9)" }}>
-                      {result.translation}
-                    </p>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => speak(result.translation!).catch(console.error)}
-                        style={{ color: "rgba(139,92,246,0.8)", fontSize: 18 }}
-                        title="Replay"
-                      >🔊</button>
-                      <button
-                        onClick={() => handleCopy(result.translation!)}
-                        className="flex-1 py-3 rounded-2xl font-semibold text-sm transition-all active:scale-95"
-                        style={{ background: "#6d28d9", color: "#fff" }}
-                      >
-                        {copied ? "✓ Copied!" : "Copy"}
-                      </button>
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-widest mb-1" style={{ color: "#f97316" }}>You said</p>
+                      <p className="text-sm leading-relaxed break-words" style={{ color: "rgba(255,255,255,0.85)" }}>
+                        &ldquo;{result.sourceText || result.transcription}&rdquo;
+                      </p>
                     </div>
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <p className="text-xs font-bold uppercase tracking-widest" style={{ color: "#00d9a0" }}>Translated</p>
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText(result.translation!);
+                            setTranslateCopied(true);
+                            setTimeout(() => setTranslateCopied(false), 1500);
+                          }}
+                          className="flex items-center justify-center rounded-lg transition-all active:scale-90"
+                          style={{ width: 28, height: 28, background: translateCopied ? "rgba(0,217,160,0.25)" : "rgba(255,255,255,0.1)", color: translateCopied ? "#00d9a0" : "rgba(255,255,255,0.6)" }}
+                          title="Copy"
+                        >
+                          {translateCopied
+                            ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                            : <CopyIcon />
+                          }
+                        </button>
+                      </div>
+                      <p className="text-sm leading-relaxed break-words" style={{ color: "rgba(255,255,255,0.85)" }}>
+                        &ldquo;{result.translation}&rdquo;
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        if (translateEditState !== "idle") return;
+                        setTranslateEditState("opening");
+                        setTimeout(() => setTranslateEditState("idle"), 700);
+                      }}
+                      className="w-full py-3 rounded-2xl font-semibold text-sm transition-all active:scale-95 flex items-center justify-center gap-1.5"
+                      style={{ background: "#6d28d9", color: "#fff" }}
+                    >
+                      {translateEditState === "opening" ? <span>Opening app...</span> : <>
+                        <span>Continue in app</span>
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <line x1="7" y1="17" x2="17" y2="7" /><polyline points="7 7 17 7 17 17" />
+                        </svg>
+                      </>}
+                    </button>
                   </div>
                 )}
 
                 {/* Grammar */}
                 {result.feature === "grammar" && (
                   <div className="flex flex-col gap-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-semibold" style={{ color: result.isCorrect ? "#4ade80" : "#fbbf24" }}>
-                        {result.isCorrect ? "✅ Looks good!" : "💡 Suggestion"}
-                      </span>
-                      <button
-                        onClick={() => {
-                          const t = result.isCorrect
-                            ? `${result.tip}`
-                            : `Try this: ${result.corrected}. ${result.tip}`;
-                          speak(t).catch(console.error);
-                        }}
-                        style={{ color: "rgba(139,92,246,0.8)", fontSize: 18 }}
-                      >🔊</button>
+                    {/* YOU SAID */}
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-widest mb-1" style={{ color: result.isCorrect ? "#00d9a0" : "#f97316" }}>
+                        You said
+                      </p>
+                      <p className="text-sm leading-relaxed">
+                        {result.isCorrect || !result.corrected || !result.original
+                          ? <span style={{ color: "rgba(255,255,255,0.85)" }}>&ldquo;{result.original}&rdquo;</span>
+                          : <>
+                              &ldquo;{diffWordsOriginal(result.original, result.corrected).map((token, idx) =>
+                                token.changed ? (
+                                  <mark key={idx} style={{ background: "rgba(249,115,22,0.2)", color: "#f97316", borderRadius: "3px", padding: "0 2px", marginRight: "3px" }}>
+                                    {token.word}
+                                  </mark>
+                                ) : (
+                                  <span key={idx} style={{ color: "rgba(255,255,255,0.85)", marginRight: "3px" }}>{token.word}</span>
+                                )
+                              )}&rdquo;
+                            </>
+                        }
+                      </p>
                     </div>
 
-                    {result.original && (
-                      <p className="text-xs" style={{ color: "rgba(255,255,255,0.35)" }}>
-                        You said: <span style={{ color: "rgba(255,255,255,0.55)" }}>{result.original}</span>
-                      </p>
-                    )}
-
+                    {/* TRY THIS — only if incorrect */}
                     {!result.isCorrect && result.corrected && result.original && (
-                      <p className="text-base font-medium leading-relaxed">
-                        {diffWords(result.original, result.corrected).map((token, idx) =>
-                          token.changed ? (
-                            <mark
-                              key={idx}
-                              style={{
-                                background: "rgba(74,222,128,0.2)",
-                                color: "#4ade80",
-                                borderRadius: "3px",
-                                padding: "0 2px",
-                                marginRight: "3px",
-                              }}
-                            >
-                              {token.word}
-                            </mark>
-                          ) : (
-                            <span key={idx} style={{ color: "rgba(255,255,255,0.9)", marginRight: "3px" }}>
-                              {token.word}
-                            </span>
-                          )
-                        )}
-                      </p>
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <p className="text-xs font-bold uppercase tracking-widest" style={{ color: "#00d9a0" }}>Try this</p>
+                          <button
+                            onClick={() => {
+                              navigator.clipboard.writeText(result.corrected!);
+                              setGrammarCopied(true);
+                              setTimeout(() => setGrammarCopied(false), 1500);
+                            }}
+                            className="flex items-center justify-center rounded-lg transition-all active:scale-90"
+                            style={{ width: 28, height: 28, background: grammarCopied ? "rgba(0,217,160,0.25)" : "rgba(255,255,255,0.1)", color: grammarCopied ? "#00d9a0" : "rgba(255,255,255,0.6)" }}
+                            title="Copy correction"
+                          >
+                            {grammarCopied
+                              ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                              : <CopyIcon />
+                            }
+                          </button>
+                        </div>
+                        <p className="text-sm leading-relaxed">
+                          &ldquo;{diffWords(result.original, result.corrected).map((token, idx) =>
+                            token.changed ? (
+                              <mark key={idx} style={{ background: "rgba(0,217,160,0.2)", color: "#00d9a0", borderRadius: "3px", padding: "0 2px", marginRight: "3px" }}>
+                                {token.word}
+                              </mark>
+                            ) : (
+                              <span key={idx} style={{ color: "rgba(255,255,255,0.85)", marginRight: "3px" }}>{token.word}</span>
+                            )
+                          )}&rdquo;
+                        </p>
+                      </div>
                     )}
 
-                    <p className="text-xs italic" style={{ color: "rgba(255,255,255,0.4)" }}>{result.tip}</p>
-
-                    {!result.isCorrect && (
-                      <button
-                        onClick={() => handleCopy(result.corrected!)}
-                        className="w-full py-3 rounded-2xl font-semibold text-sm transition-all active:scale-95"
-                        style={{ background: "#6d28d9", color: "#fff" }}
-                      >
-                        {copied ? "✓ Copied!" : "Copy correction"}
-                      </button>
+                    {/* Tip */}
+                    {result.tip && (
+                      <p className="text-xs leading-relaxed break-words" style={{ color: "rgba(255,255,255,0.4)" }}>{result.tip}</p>
                     )}
+
+                    {/* Continue in app / Hear it again */}
+                    <button
+                      onClick={() => {
+                        if (grammarContinueState !== "idle") return;
+                        setGrammarContinueState("opening");
+                        if (!result.isCorrect) navigator.clipboard.writeText(result.corrected!);
+                        setTimeout(() => setGrammarContinueState("idle"), 700);
+                      }}
+                      className="w-full py-3 rounded-2xl font-semibold text-sm transition-all active:scale-95 flex items-center justify-center gap-1.5"
+                      style={{ background: "#6d28d9", color: "#fff" }}
+                    >
+                      {grammarContinueState === "opening"
+                        ? <span>Opening app...</span>
+                        : <>
+                            <span>Continue in app</span>
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                              <line x1="7" y1="17" x2="17" y2="7" /><polyline points="7 7 17 7 17 17" />
+                            </svg>
+                          </>
+                      }
+                    </button>
                   </div>
                 )}
 
                 {/* Meaning */}
                 {result.feature === "meaning" && result.meaning && (
                   <div className="flex flex-col gap-3">
-                    <span className="text-xs uppercase tracking-wider font-semibold" style={{ color: "rgba(255,255,255,0.35)" }}>
-                      Meaning in {result.detectedLanguage}
-                    </span>
-                    <p className="text-base font-medium leading-relaxed whitespace-pre-wrap" style={{ color: "rgba(255,255,255,0.9)" }}>
-                      {result.meaning}
+                    <p className="font-bold leading-tight break-words" style={{ color: "#00d9a0", fontSize: 20 }}>
+                      {result.phrase || result.transcription}
                     </p>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => speak(result.meaning!).catch(console.error)}
-                        style={{ color: "rgba(139,92,246,0.8)", fontSize: 18 }}
-                        title="Replay"
-                      >🔊</button>
-                      <button
-                        onClick={() => handleCopy(result.meaning!)}
-                        className="flex-1 py-3 rounded-2xl font-semibold text-sm transition-all active:scale-95"
-                        style={{ background: "#6d28d9", color: "#fff" }}
-                      >
-                        {copied ? "✓ Copied!" : "Copy"}
-                      </button>
-                    </div>
+                    <p className="text-sm leading-relaxed break-words whitespace-pre-wrap" style={{ color: "rgba(255,255,255,0.85)" }}>
+                      <span style={{ color: "rgba(255,255,255,0.45)" }}>Meaning: </span>{result.meaning}
+                    </p>
+                    <button
+                      onClick={() => {
+                        if (meaningContinueState !== "idle") return;
+                        setMeaningContinueState("opening");
+                        setTimeout(() => setMeaningContinueState("idle"), 700);
+                      }}
+                      className="w-full py-3 rounded-2xl font-semibold text-sm transition-all active:scale-95 flex items-center justify-center gap-1.5"
+                      style={{ background: "#6d28d9", color: "#fff" }}
+                    >
+                      {meaningContinueState === "opening"
+                        ? <span>Opening app...</span>
+                        : <>
+                            <span>Continue in app</span>
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                              <line x1="7" y1="17" x2="17" y2="7" /><polyline points="7 7 17 7 17 17" />
+                            </svg>
+                          </>
+                      }
+                    </button>
                   </div>
                 )}
               </div>
@@ -464,14 +607,14 @@ export default function FloatingWidgetV3() {
         >
           <div
             className="flex items-center gap-3 px-3 py-3 rounded-full w-72"
-            style={{ background: "rgba(14,14,20,0.97)", border: "1px solid rgba(255,255,255,0.08)", boxShadow: "0 16px 48px rgba(0,0,0,0.7)" }}
+            style={{ background: "rgba(14,14,20,0.97)", border: "1px solid rgba(124,58,237,0.55)", boxShadow: "0 16px 48px rgba(0,0,0,0.7)" }}
           >
             <button
               onClick={cancelRecording}
               className="w-11 h-11 rounded-full flex items-center justify-center flex-shrink-0 transition-all active:scale-90"
-              style={{ background: "rgba(255,255,255,0.1)" }}
+              style={{ background: "rgba(255,255,255,0.1)", color: "#fff" }}
             >
-              <span style={{ color: "#fff", fontSize: 18 }}>✕</span>
+              <CloseIcon />
             </button>
             <div className="flex-1 flex items-center justify-center h-11">
               <canvas ref={canvasRef} width={140} height={40} className="w-full h-full" />
