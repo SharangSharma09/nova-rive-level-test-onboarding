@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 interface DraftResult {
   recommendation: string;
@@ -9,16 +9,34 @@ interface DraftResult {
   formal: string;
 }
 
+const RedirectArrow = () => (
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <line x1="7" y1="17" x2="17" y2="7" />
+    <polyline points="7 7 17 7 17 17" />
+  </svg>
+);
+
 const TONES = [
   { key: "casual",     label: "Casual",     emoji: "😊" },
-  { key: "semiFormal", label: "Semi-formal", emoji: "🤝" },
-  { key: "formal",     label: "Formal",      emoji: "📋" },
+  { key: "semiFormal", label: "Semi formal", emoji: "🙂" },
+  { key: "formal",     label: "Formal",      emoji: "😎" },
 ] as const;
 
-export default function ToneCards({ result, onClose }: { result: DraftResult; onClose?: () => void }) {
-  const normaliseRec = (r: string) => r === "semi_formal" ? "semiFormal" : r;
+export default function ToneCards({ result, onClose, onActiveChange }: { result: DraftResult; onClose?: () => void; onActiveChange?: (text: string) => void }) {
+  const normaliseRec = (r: string) => {
+    if (r === "casual_text" || r === "casual") return "casual";
+    if (r === "semi_formal_text" || r === "semi_formal" || r === "semiFormal") return "semiFormal";
+    if (r === "formal_text" || r === "formal") return "formal";
+    return "semiFormal";
+  };
   const [active, setActive] = useState<string>(normaliseRec(result.recommendation) || "semiFormal");
   const [copied, setCopied] = useState(false);
+  const [insertState, setInsertState] = useState<"idle" | "opening" | "done">("idle");
+
+  useEffect(() => {
+    onActiveChange?.(textFor(normaliseRec(result.recommendation) || "semiFormal"));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const textFor = (key: string) => {
     if (key === "casual") return result.casual;
@@ -27,19 +45,15 @@ export default function ToneCards({ result, onClose }: { result: DraftResult; on
   };
 
   const handleCopy = async () => {
-    const text = textFor(active);
-    const ta = document.getElementById("main-textarea") as HTMLTextAreaElement | null;
-    if (ta) {
-      const start = ta.selectionStart ?? ta.value.length;
-      const end = ta.selectionEnd ?? ta.value.length;
-      ta.value = ta.value.substring(0, start) + text + ta.value.substring(end);
-      ta.selectionStart = ta.selectionEnd = start + text.length;
-      ta.focus();
-    } else {
-      await navigator.clipboard.writeText(text);
-    }
+    await navigator.clipboard.writeText(textFor(active));
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleEditInApp = () => {
+    if (insertState !== "idle") return;
+    setInsertState("opening");
+    setTimeout(() => setInsertState("idle"), 700);
   };
 
   return (
@@ -51,7 +65,7 @@ export default function ToneCards({ result, onClose }: { result: DraftResult; on
           return (
             <button
               key={key}
-              onClick={() => setActive(key)}
+              onClick={() => { setActive(key); onActiveChange?.(textFor(key)); }}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all"
               style={{
                 background: isActive ? "#6d28d9" : "rgba(255,255,255,0.08)",
@@ -68,19 +82,28 @@ export default function ToneCards({ result, onClose }: { result: DraftResult; on
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto mb-4">
-        <p className="text-base leading-relaxed font-medium" style={{ color: "rgba(255,255,255,0.92)" }}>
+        <p className="text-base leading-relaxed font-medium break-words" style={{ color: "rgba(255,255,255,0.92)" }}>
           {textFor(active)}
         </p>
       </div>
 
-      {/* Insert / Copy button */}
-      <button
-        onClick={handleCopy}
-        className="w-full py-3 rounded-2xl font-semibold text-sm transition-all active:scale-95 flex items-center justify-center gap-2"
-        style={{ background: "#6d28d9", color: "#fff" }}
-      >
-        {copied ? "✓ Inserted!" : <>Insert <span style={{ fontSize: "16px" }}>↵</span></>}
-      </button>
+      {/* Buttons */}
+      <div className="flex gap-2">
+        <button
+          onClick={handleCopy}
+          className="flex-1 py-3 rounded-2xl font-semibold text-sm transition-all active:scale-95"
+          style={{ background: "#6d28d9", color: "#fff" }}
+        >
+          {copied ? "✓ Copied!" : "Copy"}
+        </button>
+        <button
+          onClick={handleEditInApp}
+          className="flex-1 py-3 rounded-2xl font-semibold text-sm transition-all active:scale-95 flex items-center justify-center gap-1.5"
+          style={{ background: "rgba(255,255,255,0.12)", color: "rgba(255,255,255,0.85)" }}
+        >
+          {insertState === "opening" ? "Opening app..." : <><span>Edit in app</span><RedirectArrow /></>}
+        </button>
+      </div>
     </div>
   );
 }
