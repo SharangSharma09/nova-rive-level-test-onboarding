@@ -29,6 +29,7 @@ interface V4Result {
   // meaning
   phrase?: string;
   meaning?: string;
+  example?: string;
 }
 
 function diffWords(original: string, corrected: string): { word: string; changed: boolean }[] {
@@ -474,7 +475,9 @@ export default function FloatingWidgetV4() {
               result.feature === "draft" ? (activeDraftText ?? result.semiFormal ?? result.casual ?? result.formal ?? "") :
               result.feature === "translate" ? (result.translation || "") :
               result.feature === "grammar" ? (result.corrected || result.original || "") :
-              result.feature === "meaning" ? (result.phrase || result.transcription || "") : "";
+              result.feature === "meaning"
+                ? [result.phrase || result.transcription, result.meaning, result.example].filter(Boolean).join(". ")
+                : "";
 
             return (
               <div className="w-80 rounded-3xl p-4 flex flex-col gap-3" style={{ ...PANEL_STYLE, maxHeight: "80vh", overflowY: "auto" }}>
@@ -659,6 +662,11 @@ export default function FloatingWidgetV4() {
                     <p className="text-sm leading-relaxed break-words whitespace-pre-wrap" style={{ color: "rgba(255,255,255,0.85)" }}>
                       <span style={{ color: "rgba(255,255,255,0.45)" }}>Meaning: </span>{result.meaning}
                     </p>
+                    {result.example && (
+                      <p className="text-sm leading-relaxed break-words whitespace-pre-wrap" style={{ color: "rgba(255,255,255,0.85)" }}>
+                        <span style={{ color: "rgba(255,255,255,0.45)" }}>Example: </span>{result.example}
+                      </p>
+                    )}
                     <button
                       onClick={() => {
                         if (meaningContinueState !== "idle") return;

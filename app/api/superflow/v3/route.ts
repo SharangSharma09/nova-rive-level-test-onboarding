@@ -77,7 +77,8 @@ export async function POST(request: Request) {
     } else if (intent === "meaning") {
       const phrase = extractTag(text, "phrase") || transcription;
       const meaning = extractTag(text, "meaning");
-      return Response.json({ feature: "meaning", transcription, detectedLanguage, phrase, meaning });
+      const example = extractTag(text, "example");
+      return Response.json({ feature: "meaning", transcription, detectedLanguage, phrase, meaning, example });
     }
 
     return Response.json({ error: "Unknown intent." }, { status: 500 });

@@ -8,6 +8,8 @@ export async function transcribeWithSarvam(
   const cleanBlob = new Blob([await audioBlob.arrayBuffer()], { type: "audio/webm" });
   formData.append("file", cleanBlob, "audio.webm");
   formData.append("language_code", "unknown");
+  formData.append("model", "saaras:v3");
+  formData.append("mode", "codemix");
 
   const res = await fetch("https://api.sarvam.ai/speech-to-text", {
     method: "POST",
