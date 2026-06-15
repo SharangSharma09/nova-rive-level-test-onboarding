@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+@keyframes nova-pulse {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(168,85,247,0.6), 0 0 20px 6px rgba(139,92,246,0.7), 0 4px 16px rgba(0,0,0,0.4); }
+  50%       { box-shadow: 0 0 0 5px rgba(168,85,247,0.3), 0 0 32px 12px rgba(139,92,246,0.5), 0 4px 16px rgba(0,0,0,0.4); }
+}
+
 :root {
   --background: #ffffff;
   --foreground: #171717;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 interface DraftResult {
   recommendation: string;
@@ -32,11 +32,20 @@ export default function ToneCards({ result, onClose, onActiveChange }: { result:
   const [active, setActive] = useState<string>(normaliseRec(result.recommendation) || "semiFormal");
   const [copied, setCopied] = useState(false);
   const [insertState, setInsertState] = useState<"idle" | "opening" | "done">("idle");
+  const [showFade, setShowFade] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     onActiveChange?.(textFor(normaliseRec(result.recommendation) || "semiFormal"));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    setShowFade(el.scrollHeight > el.clientHeight);
+    el.scrollTop = 0;
+  }, [active]);
 
   const textFor = (key: string) => {
     if (key === "casual") return result.casual;
@@ -81,10 +90,28 @@ export default function ToneCards({ result, onClose, onActiveChange }: { result:
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto mb-4">
-        <p className="text-base leading-relaxed font-medium break-words" style={{ color: "rgba(255,255,255,0.92)" }}>
-          {textFor(active)}
-        </p>
+      <div className="relative mb-4">
+        <div
+          ref={scrollRef}
+          className="overflow-y-auto"
+          style={{ maxHeight: "40vh" }}
+          onScroll={(e) => {
+            const el = e.currentTarget;
+            const atBottom = el.scrollHeight - el.scrollTop <= el.clientHeight + 4;
+            setShowFade(!atBottom);
+          }}
+        >
+          <p className="text-base leading-relaxed font-medium break-words" style={{ color: "rgba(255,255,255,0.92)" }}>
+            {textFor(active)}
+          </p>
+        </div>
+        {/* Bottom fade hint — only when content overflows */}
+        {showFade && (
+          <div
+            className="pointer-events-none absolute bottom-0 left-0 right-0 transition-opacity duration-300"
+            style={{ height: 48, background: "linear-gradient(to bottom, transparent, rgba(14,14,20,0.97))" }}
+          />
+        )}
       </div>
 
       {/* Buttons */}
