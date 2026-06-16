@@ -29,7 +29,12 @@ export async function POST(request: Request) {
     return Response.json({ error: "No audio received." }, { status: 400 });
   }
 
-  console.log("[v3] audio received —", Math.round(audio.size / 1024), "KB,", audio.type);
+  // Optional localized-answer language (Tamil/Hindi) for the /v3-* and /v4-* routes.
+  // Absent for the English /v3 and /v4 widgets → behaves exactly as before.
+  const langRaw = formData.get("lang");
+  const lang = langRaw === "Tamil" || langRaw === "Hindi" ? langRaw : undefined;
+
+  console.log("[v3] audio received —", Math.round(audio.size / 1024), "KB,", audio.type, lang ? `| lang: ${lang}` : "");
 
   // ── Step 1: STT (Sarvam) ───────────────────────────────────────────────────
   let transcription: string;
@@ -49,7 +54,7 @@ export async function POST(request: Request) {
   const model = genAI.getGenerativeModel({ model: "gemini-3.1-flash-lite" });
 
   try {
-    const result = await model.generateContent(combinedPrompt(transcription));
+    const result = await model.generateContent(combinedPrompt(transcription, lang));
     const text = stripFences(result.response.text().trim());
     console.log("[v3] LLM raw (first 200 chars):", text.slice(0, 200));
 
@@ -79,9 +84,20 @@ export async function POST(request: Request) {
       const meaning = extractTag(text, "meaning");
       const example = extractTag(text, "example");
       return Response.json({ feature: "meaning", transcription, detectedLanguage, phrase, meaning, example });
+
+    } else if (intent === "qa") {
+      const question = extractTag(text, "question") || transcription;
+      const answer = extractTag(text, "answer");
+      const answerEnglish = extractTag(text, "answer_english");
+      return Response.json({ feature: "qa", transcription, detectedLanguage, question, answer, ...(answerEnglish ? { answerEnglish } : {}) });
     }
 
-    return Response.json({ error: "Unknown intent." }, { status: 500 });
+    // Graceful fallback — never error out on an unrecognized intent; treat it as Q&A.
+    console.warn(`[v3] unrecognized intent "${intent}" — falling back to qa`);
+    const question = extractTag(text, "question") || transcription;
+    const answer = extractTag(text, "answer");
+    const answerEnglish = extractTag(text, "answer_english");
+    return Response.json({ feature: "qa", transcription, detectedLanguage, question, answer, ...(answerEnglish ? { answerEnglish } : {}) });
   } catch (e) {
     console.error("[v3] ✗ LLM error after", Date.now() - start, "ms:", e);
     return Response.json({ error: "Something went wrong. Please try again." }, { status: 500 });

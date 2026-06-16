@@ -7,7 +7,7 @@ import ToneCards from "./ToneCards";
 
 type V4State = "closed" | "idle_expanded" | "recording" | "analyzing" | "result" | "error";
 
-type Feature = "draft" | "translate" | "grammar" | "meaning";
+type Feature = "draft" | "translate" | "grammar" | "meaning" | "qa";
 
 interface V4Result {
   feature: Feature;
@@ -30,6 +30,9 @@ interface V4Result {
   phrase?: string;
   meaning?: string;
   example?: string;
+  // qa
+  question?: string;
+  answer?: string;
 }
 
 function diffWords(original: string, corrected: string): { word: string; changed: boolean }[] {
@@ -65,6 +68,7 @@ const FEATURE_META: Record<Feature, { label: string; emoji: string }> = {
   translate: { label: "Translate to English", emoji: "🌐" },
   grammar:   { label: "Check Grammar",        emoji: "✅" },
   meaning:   { label: "Find Meaning",         emoji: "📖" },
+  qa:        { label: "Ask Nova",             emoji: "💬" },
 };
 
 function diffWordsOriginal(original: string, corrected: string): { word: string; changed: boolean }[] {
@@ -106,6 +110,7 @@ const HINTS = [
   "Check my grammar",
   "I have English doubt...",
   "What is the meaning of...",
+  "How do I say sorry politely?",
 ];
 
 const CopyIcon = () => (
@@ -152,6 +157,8 @@ export default function FloatingWidgetV4() {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [grammarContinueState, setGrammarContinueState] = useState<"idle" | "opening">("idle");
   const [meaningContinueState, setMeaningContinueState] = useState<"idle" | "opening">("idle");
+  const [qaCopied, setQaCopied] = useState(false);
+  const [qaContinueState, setQaContinueState] = useState<"idle" | "opening">("idle");
   const [hintIndex, setHintIndex] = useState(0);
   const [hintVisible, setHintVisible] = useState(true);
 
@@ -476,8 +483,9 @@ export default function FloatingWidgetV4() {
               result.feature === "translate" ? (result.translation || "") :
               result.feature === "grammar" ? (result.corrected || result.original || "") :
               result.feature === "meaning"
-                ? [result.phrase || result.transcription, result.meaning, result.example].filter(Boolean).join(". ")
-                : "";
+                ? [result.phrase || result.transcription, result.meaning, result.example].filter(Boolean).join(". ") :
+              result.feature === "qa" ? (result.answer || "") :
+              "";
 
             return (
               <div className="w-80 rounded-3xl p-4 flex flex-col gap-3" style={{ ...PANEL_STYLE, maxHeight: "80vh", overflowY: "auto" }}>
@@ -686,6 +694,78 @@ export default function FloatingWidgetV4() {
                           </>
                       }
                     </button>
+                  </div>
+                )}
+
+                {/* Q&A (generic fallback) */}
+                {result.feature === "qa" && result.answer && (
+                  <div className="flex flex-col gap-3">
+                    {/* You asked */}
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-widest mb-1" style={{ color: "rgba(255,255,255,0.35)" }}>You asked</p>
+                      <p className="text-sm leading-relaxed break-words" style={{ color: "rgba(255,255,255,0.65)" }}>
+                        &ldquo;{result.question || result.transcription}&rdquo;
+                      </p>
+                    </div>
+
+                    {/* Divider */}
+                    <div style={{ height: 1, background: "rgba(124,58,237,0.25)" }} />
+
+                    {/* Answer */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <p className="text-xs font-bold uppercase tracking-widest" style={{ color: "#00d9a0" }}>Answer</p>
+                        <button
+                          onClick={() => handleSpeak(result.answer!)}
+                          className={`flex items-center justify-center rounded-lg transition-all active:scale-90 ${isSpeaking ? "animate-pulse" : ""}`}
+                          style={{ width: 28, height: 28, background: isSpeaking ? "rgba(109,40,217,0.35)" : "rgba(255,255,255,0.1)", color: isSpeaking ? "#a78bfa" : "rgba(255,255,255,0.6)" }}
+                          title="Hear answer"
+                        >
+                          <SpeakerIcon />
+                        </button>
+                      </div>
+                      <p className="text-sm leading-relaxed break-words whitespace-pre-wrap" style={{ color: "rgba(255,255,255,0.9)" }}>
+                        {result.answer}
+                      </p>
+                    </div>
+
+                    {/* CTAs */}
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(result.answer!);
+                          setQaCopied(true);
+                          setTimeout(() => setQaCopied(false), 1500);
+                        }}
+                        className="flex-none px-5 py-3 rounded-2xl font-semibold text-sm transition-all active:scale-95 flex items-center justify-center gap-1.5"
+                        style={{ background: qaCopied ? "rgba(0,217,160,0.25)" : "#6d28d9", color: qaCopied ? "#00d9a0" : "#fff" }}
+                      >
+                        {qaCopied
+                          ? <><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg><span>Copied</span></>
+                          : <><CopyIcon /><span>Copy</span></>
+                        }
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (qaContinueState !== "idle") return;
+                          setQaContinueState("opening");
+                          navigator.clipboard.writeText(result.answer!);
+                          setTimeout(() => setQaContinueState("idle"), 700);
+                        }}
+                        className="flex-1 py-3 rounded-2xl font-semibold text-sm transition-all active:scale-95 flex items-center justify-center gap-1.5"
+                        style={{ background: "rgba(255,255,255,0.08)", color: "#fff" }}
+                      >
+                        {qaContinueState === "opening"
+                          ? <span>Opening app...</span>
+                          : <>
+                              <span>Continue in app</span>
+                              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                <line x1="7" y1="17" x2="17" y2="7" /><polyline points="7 7 17 7 17 17" />
+                              </svg>
+                            </>
+                        }
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
