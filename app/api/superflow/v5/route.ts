@@ -76,25 +76,48 @@ export async function POST(request: Request) {
       return Response.json({ mode: "localize", transcription, recommendation, casual, semiFormal, formal });
 
     } else {
+      // ── Doubt: one LLM call classifies the question and produces the response ──
       const result = await model.generateContent(v5CombinedPrompt(transcription, "doubt"));
-      const raw = stripFences(result.response.text().trim());
-      console.log("[v5] doubt LLM raw (first 200):", raw.slice(0, 200));
+      const text = stripFences(result.response.text().trim());
+      console.log("[v5] doubt LLM raw (first 200):", text.slice(0, 200));
 
-      let parsed: { question?: string; answer?: string };
-      try {
-        parsed = JSON.parse(raw);
-      } catch (e) {
-        console.error("[v5] ✗ doubt JSON parse failed:", e, "raw:", raw.slice(0, 300));
-        return Response.json({ error: "Something went wrong. Please try again." }, { status: 500 });
+      const intent = extractTag(text, "intent") || "doubt";
+      const detectedLanguage = extractTag(text, "language") || "Unknown";
+      console.log(`[v5] doubt intent: ${intent} | language: ${detectedLanguage} | elapsed: ${Date.now() - start}ms`);
+
+      if (intent === "translate") {
+        const sourceText = extractTag(text, "sourceText") || transcription;
+        const translation = extractTag(text, "translation");
+        return Response.json({ mode: "doubt", intent: "translate", transcription, detectedLanguage, sourceText, translation });
       }
 
-      if (!parsed.answer) {
+      if (intent === "grammar") {
+        const grammarRaw = extractTag(text, "grammar");
+        let grammarData: Record<string, unknown> = {};
+        try {
+          grammarData = grammarRaw ? JSON.parse(grammarRaw) : {};
+        } catch (e) {
+          console.error("[v5] ✗ grammar JSON parse failed:", e, "raw:", grammarRaw.slice(0, 300));
+        }
+        return Response.json({ mode: "doubt", intent: "grammar", transcription, detectedLanguage, ...grammarData });
+      }
+
+      if (intent === "meaning") {
+        const phrase = extractTag(text, "phrase") || transcription;
+        const meaning = extractTag(text, "meaning");
+        const example = extractTag(text, "example");
+        return Response.json({ mode: "doubt", intent: "meaning", transcription, detectedLanguage, phrase, meaning, example });
+      }
+
+      // Generic doubt — the fallback "You asked / Answer" panel.
+      const answer = extractTag(text, "answer");
+      if (!answer) {
         console.error("[v5] ✗ doubt: missing answer field");
         return Response.json({ error: "Something went wrong. Please try again." }, { status: 500 });
       }
-
+      const question = extractTag(text, "question") || transcription;
       console.log(`[v5] doubt done | elapsed: ${Date.now() - start}ms`);
-      return Response.json({ mode: "doubt", transcription, question: parsed.question || transcription, answer: parsed.answer });
+      return Response.json({ mode: "doubt", intent: "doubt", transcription, question, answer });
     }
   } catch (e) {
     console.error("[v5] ✗ LLM error after", Date.now() - start, "ms:", e);

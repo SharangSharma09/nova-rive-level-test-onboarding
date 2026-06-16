@@ -1,7 +1,6 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { transcribeWithSarvam } from "@/lib/sarvam-transcribe";
 import { v5CombinedPrompt } from "../prompts/v5-combined";
-import { tamilTranslatePrompt } from "../prompts/v5-tamil-translate";
 
 function stripFences(text: string): string {
   return text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
@@ -77,38 +76,56 @@ export async function POST(request: Request) {
       return Response.json({ mode: "localize", transcription, recommendation, casual, semiFormal, formal });
     }
 
-    // ── Doubt: get English answer, then translate to Tamil ────────────────────
-    const doubtResult = await model.generateContent(v5CombinedPrompt(transcription, "doubt"));
-    const doubtRaw = stripFences(doubtResult.response.text().trim());
-    console.log("[v5-tamil] doubt LLM raw (first 200):", doubtRaw.slice(0, 200));
+    // ── Doubt: one LLM call classifies the question and produces the response ──
+    // For generic doubt it returns a Tamil answer + an English answer in the same call.
+    const doubtResult = await model.generateContent(v5CombinedPrompt(transcription, "doubt", "Tamil"));
+    const text = stripFences(doubtResult.response.text().trim());
+    console.log("[v5-tamil] doubt LLM raw (first 200):", text.slice(0, 200));
 
-    let parsed: { question?: string; answer?: string };
-    try {
-      parsed = JSON.parse(doubtRaw);
-    } catch (e) {
-      console.error("[v5-tamil] ✗ doubt JSON parse failed:", e);
-      return Response.json({ error: "Something went wrong. Please try again." }, { status: 500 });
+    const intent = extractTag(text, "intent") || "doubt";
+    const detectedLanguage = extractTag(text, "language") || "Tamil";
+    console.log(`[v5-tamil] doubt intent: ${intent} | language: ${detectedLanguage} | elapsed: ${Date.now() - start}ms`);
+
+    if (intent === "translate") {
+      const sourceText = extractTag(text, "sourceText") || transcription;
+      const translation = extractTag(text, "translation");
+      return Response.json({ mode: "doubt", intent: "translate", transcription, detectedLanguage, sourceText, translation });
     }
 
-    if (!parsed.answer) {
+    if (intent === "grammar") {
+      const grammarRaw = extractTag(text, "grammar");
+      let grammarData: Record<string, unknown> = {};
+      try {
+        grammarData = grammarRaw ? JSON.parse(grammarRaw) : {};
+      } catch (e) {
+        console.error("[v5-tamil] ✗ grammar JSON parse failed:", e, "raw:", grammarRaw.slice(0, 300));
+      }
+      return Response.json({ mode: "doubt", intent: "grammar", transcription, detectedLanguage, ...grammarData });
+    }
+
+    if (intent === "meaning") {
+      const phrase = extractTag(text, "phrase") || transcription;
+      const meaning = extractTag(text, "meaning");
+      const example = extractTag(text, "example");
+      return Response.json({ mode: "doubt", intent: "meaning", transcription, detectedLanguage, phrase, meaning, example });
+    }
+
+    // Generic doubt — Tamil answer + English answer (local/English toggle) from the single call.
+    const answer = extractTag(text, "answer");
+    if (!answer) {
       console.error("[v5-tamil] ✗ doubt: missing answer field");
       return Response.json({ error: "Something went wrong. Please try again." }, { status: 500 });
     }
-
-    console.log(`[v5-tamil] doubt English answer ready | ${Date.now() - start}ms — translating to Tamil…`);
-
-    // Translate the English answer to Tamil
-    const translateResult = await model.generateContent(tamilTranslatePrompt(parsed.answer));
-    const rawTranslated = translateResult.response.text().trim();
-    const translatedAnswer = extractTag(rawTranslated, "translated_text") || rawTranslated;
-    console.log(`[v5-tamil] Tamil answer: ${translatedAnswer.slice(0, 100)} | ${Date.now() - start}ms`);
-
+    const question = extractTag(text, "question") || transcription;
+    const answerEnglish = extractTag(text, "answer_english");
+    console.log(`[v5-tamil] doubt done | ${Date.now() - start}ms`);
     return Response.json({
       mode: "doubt",
+      intent: "doubt",
       transcription,
-      question: parsed.question || transcription,
-      answer: translatedAnswer,
-      answerEnglish: parsed.answer,
+      question,
+      answer,
+      ...(answerEnglish ? { answerEnglish } : {}),
     });
 
   } catch (e) {

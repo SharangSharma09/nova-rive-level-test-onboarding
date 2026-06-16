@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useRef, useCallback, useEffect, useLayoutEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useLayoutEffect, type ReactNode } from "react";
 import { createRecorder, type Recorder } from "@/lib/recorder";
 import { speak, stopSpeaking } from "@/lib/tts";
 import ToneCards from "./ToneCards";
 
 type V5Mode = "localize" | "doubt";
+type V5DoubtIntent = "translate" | "meaning" | "grammar" | "doubt";
 type V5State = "closed" | "mode_select" | "recording" | "analyzing" | "result" | "error";
 
 interface V5Result {
@@ -16,10 +17,86 @@ interface V5Result {
   casual?: string;
   semiFormal?: string;
   formal?: string;
-  // doubt
+  // doubt — classified intent decides which card renders
+  intent?: V5DoubtIntent;
+  // doubt → generic Q&A
   question?: string;
   answer?: string;
   answerEnglish?: string;
+  // doubt → translate
+  sourceText?: string;
+  translation?: string;
+  // doubt → grammar
+  isCorrect?: boolean;
+  original?: string;
+  corrected?: string;
+  tip?: string;
+  // doubt → meaning
+  phrase?: string;
+  meaning?: string;
+  example?: string;
+}
+
+// Word-level diff for grammar highlighting (lifted from FloatingWidgetV4).
+function diffTokens(original: string, corrected: string, mark: "original" | "corrected"): { word: string; changed: boolean }[] {
+  const wa = original.split(/\s+/);
+  const wb = corrected.split(/\s+/);
+  const norm = (w: string) => w.toLowerCase().replace(/[^a-z]/g, "");
+  const dp: number[][] = Array(wa.length + 1).fill(null).map(() => Array(wb.length + 1).fill(0));
+  for (let i = 1; i <= wa.length; i++) {
+    for (let j = 1; j <= wb.length; j++) {
+      dp[i][j] = norm(wa[i - 1]) === norm(wb[j - 1])
+        ? dp[i - 1][j - 1] + 1
+        : Math.max(dp[i - 1][j], dp[i][j - 1]);
+    }
+  }
+  const target = mark === "original" ? wa : wb;
+  const changed = new Array(target.length).fill(true);
+  let i = wa.length, j = wb.length;
+  while (i > 0 && j > 0) {
+    if (norm(wa[i - 1]) === norm(wb[j - 1])) {
+      changed[(mark === "original" ? i : j) - 1] = false;
+      i--; j--;
+    } else if (dp[i - 1][j] > dp[i][j - 1]) {
+      i--;
+    } else {
+      j--;
+    }
+  }
+  return target.map((word, idx) => ({ word, changed: changed[idx] }));
+}
+
+// Contained scroll region with a bottom fade hint that appears only while there is
+// more content below. Shared by every doubt-result card (Q&A, translate, grammar, meaning).
+function ScrollFade({ children, maxHeight = "40vh" }: { children: ReactNode; maxHeight?: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [showFade, setShowFade] = useState(false);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (el) setShowFade(el.scrollHeight > el.clientHeight + 4);
+  }, [children]);
+  return (
+    <div className="relative">
+      <div
+        ref={ref}
+        className="overflow-y-auto flex flex-col gap-3"
+        style={{ maxHeight }}
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          const atBottom = el.scrollHeight - el.scrollTop <= el.clientHeight + 4;
+          setShowFade(!atBottom);
+        }}
+      >
+        {children}
+      </div>
+      {showFade && (
+        <div
+          className="pointer-events-none absolute bottom-0 left-0 right-0 transition-opacity duration-300"
+          style={{ height: 48, background: "linear-gradient(to bottom, transparent, rgba(14,14,20,0.97))" }}
+        />
+      )}
+    </div>
+  );
 }
 
 const PANEL_STYLE = {
@@ -45,6 +122,13 @@ const CloseIcon = () => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
     <line x1="18" y1="6" x2="6" y2="18"/>
     <line x1="6" y1="6" x2="18" y2="18"/>
+  </svg>
+);
+
+const BackIcon = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <line x1="19" y1="12" x2="5" y2="12"/>
+    <polyline points="12 19 5 12 12 5"/>
   </svg>
 );
 
@@ -101,8 +185,6 @@ export default function FloatingWidgetV5({ lang = "Tamil", apiEndpoint = "/api/s
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [answerCopied, setAnswerCopied] = useState(false);
   const [answerLang, setAnswerLang] = useState<"local" | "english">("local");
-  const [showDoubtFade, setShowDoubtFade] = useState(false);
-  const doubtScrollRef = useRef<HTMLDivElement>(null);
   const [activeDraftText, setActiveDraftText] = useState<string | null>(null);
   const [continueState, setContinueState] = useState<"idle" | "opening">("idle");
 
@@ -253,6 +335,23 @@ export default function FloatingWidgetV5({ lang = "Tamil", apiEndpoint = "/api/s
     setState("closed");
   }, [stopAnimation]);
 
+  // Back from a result → return to the mode-select menu (clears the current result).
+  const handleBack = useCallback(() => {
+    stopAnimation();
+    recorderRef.current?.cleanup();
+    recorderRef.current = null;
+    analyserRef.current = null;
+    stopSpeaking().catch(console.error);
+    setIsSpeaking(false);
+    setResult(null);
+    setErrorMsg(null);
+    setAnswerCopied(false);
+    setAnswerLang("local");
+    setActiveMode(null);
+    setContinueState("idle");
+    setState("mode_select");
+  }, [stopAnimation]);
+
   const handleSpeak = useCallback(async (text: string) => {
     if (isSpeaking) {
       await stopSpeaking();
@@ -274,13 +373,6 @@ export default function FloatingWidgetV5({ lang = "Tamil", apiEndpoint = "/api/s
     setAnswerCopied(true);
     setTimeout(() => setAnswerCopied(false), 1500);
   }, []);
-
-  useLayoutEffect(() => {
-    if (state === "result" && result?.mode === "doubt") {
-      const el = doubtScrollRef.current;
-      if (el) setShowDoubtFade(el.scrollHeight > el.clientHeight);
-    }
-  }, [state, result]);
 
   useEffect(() => {
     return () => {
@@ -326,7 +418,13 @@ export default function FloatingWidgetV5({ lang = "Tamil", apiEndpoint = "/api/s
     result?.mode === "localize"
       ? (activeDraftText ?? result.semiFormal ?? result.casual ?? result.formal ?? "")
       : result?.mode === "doubt"
-      ? (result.answer ?? "")
+      ? result.intent === "translate"
+        ? (result.translation ?? "")
+        : result.intent === "grammar"
+        ? (result.corrected || result.original || "")
+        : result.intent === "meaning"
+        ? [result.phrase, result.meaning, result.example].filter(Boolean).join(". ")
+        : (result.answer ?? "")
       : "";
 
   return (
@@ -428,11 +526,12 @@ export default function FloatingWidgetV5({ lang = "Tamil", apiEndpoint = "/api/s
                 <>
                   <div className="flex items-center justify-between">
                     <button
-                      onClick={handleReset}
+                      onClick={handleBack}
+                      title="Back"
                       className="w-8 h-8 flex items-center justify-center rounded-full transition-all active:opacity-60"
                       style={{ color: "rgba(255,255,255,0.5)", background: "rgba(255,255,255,0.08)" }}
                     >
-                      <CloseIcon />
+                      <BackIcon />
                     </button>
                     <button
                       onClick={() => handleSpeak(speakableText)}
@@ -457,17 +556,208 @@ export default function FloatingWidgetV5({ lang = "Tamil", apiEndpoint = "/api/s
                 </>
               )}
 
-              {/* ── Doubt result (chat Q&A) ── */}
-              {result.mode === "doubt" && result.answer && (
+              {/* ── Doubt → Translate ── */}
+              {result.mode === "doubt" && result.intent === "translate" && result.translation && (
+                <>
+                  {/* Header — close + speaker */}
+                  <div className="flex items-center justify-between">
+                    <button
+                      onClick={handleBack}
+                      title="Back"
+                      className="w-8 h-8 flex items-center justify-center rounded-full transition-all active:opacity-60"
+                      style={{ color: "rgba(255,255,255,0.5)", background: "rgba(255,255,255,0.08)" }}
+                    >
+                      <BackIcon />
+                    </button>
+                    <button
+                      onClick={() => handleSpeak(speakableText)}
+                      className={`w-8 h-8 flex items-center justify-center rounded-full transition-all active:opacity-60 ${isSpeaking ? "animate-pulse" : ""}`}
+                      style={{ color: isSpeaking ? "#a78bfa" : "rgba(255,255,255,0.5)", background: isSpeaking ? "rgba(109,40,217,0.35)" : "rgba(255,255,255,0.08)" }}
+                    >
+                      <SpeakerIcon />
+                    </button>
+                  </div>
+                  <ScrollFade>
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-widest mb-1.5" style={{ color: "#f97316", letterSpacing: "0.1em" }}>You said</p>
+                      <p className="text-sm leading-relaxed break-words" style={{ color: "rgba(255,255,255,0.65)" }}>
+                        &ldquo;{result.sourceText || result.transcription}&rdquo;
+                      </p>
+                    </div>
+                    <div style={{ height: 1, background: "rgba(124,58,237,0.25)" }} />
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-widest mb-1.5" style={{ color: "#00d9a0", letterSpacing: "0.1em" }}>Translated</p>
+                      <p className="text-sm leading-relaxed break-words whitespace-pre-wrap" style={{ color: "rgba(255,255,255,0.9)" }}>
+                        &ldquo;{result.translation}&rdquo;
+                      </p>
+                    </div>
+                  </ScrollFade>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleCopyAnswer(result.translation!)}
+                      className="flex-none px-5 py-3 rounded-2xl font-semibold text-sm transition-all active:scale-95 flex items-center justify-center gap-1.5"
+                      style={{ background: "#6d28d9", color: "#fff" }}
+                    >
+                      {answerCopied ? <><CheckIcon /><span>Copied</span></> : <><CopyIcon /><span>Copy</span></>}
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (continueState !== "idle") return;
+                        setContinueState("opening");
+                        setTimeout(() => setContinueState("idle"), 700);
+                      }}
+                      className="flex-1 py-3 rounded-2xl font-semibold text-sm transition-all active:scale-95 flex items-center justify-center gap-1.5"
+                      style={{ background: "rgba(255,255,255,0.08)", color: "#fff" }}
+                    >
+                      {continueState === "opening" ? <span>Opening...</span> : <><span>Continue in app</span><ArrowIcon /></>}
+                    </button>
+                  </div>
+                </>
+              )}
+
+              {/* ── Doubt → Grammar ── */}
+              {result.mode === "doubt" && result.intent === "grammar" && (result.original || result.corrected) && (
+                <>
+                  <div className="flex items-center justify-between">
+                    <button
+                      onClick={handleBack}
+                      title="Back"
+                      className="w-8 h-8 flex items-center justify-center rounded-full transition-all active:opacity-60"
+                      style={{ color: "rgba(255,255,255,0.5)", background: "rgba(255,255,255,0.08)" }}
+                    >
+                      <BackIcon />
+                    </button>
+                    <button
+                      onClick={() => handleSpeak(speakableText)}
+                      className={`w-8 h-8 flex items-center justify-center rounded-full transition-all active:opacity-60 ${isSpeaking ? "animate-pulse" : ""}`}
+                      style={{ color: isSpeaking ? "#a78bfa" : "rgba(255,255,255,0.5)", background: isSpeaking ? "rgba(109,40,217,0.35)" : "rgba(255,255,255,0.08)" }}
+                    >
+                      <SpeakerIcon />
+                    </button>
+                  </div>
+                  <ScrollFade>
+                    {/* You said */}
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-widest mb-1.5" style={{ color: result.isCorrect ? "#00d9a0" : "#f97316", letterSpacing: "0.1em" }}>You said</p>
+                      <p className="text-sm leading-relaxed">
+                        {result.isCorrect || !result.corrected || !result.original
+                          ? <span style={{ color: "rgba(255,255,255,0.85)" }}>&ldquo;{result.original}&rdquo;</span>
+                          : <>&ldquo;{diffTokens(result.original, result.corrected, "original").map((token, idx) =>
+                              token.changed
+                                ? <mark key={idx} style={{ background: "rgba(249,115,22,0.2)", color: "#f97316", borderRadius: "3px", padding: "0 2px", marginRight: "3px" }}>{token.word}</mark>
+                                : <span key={idx} style={{ color: "rgba(255,255,255,0.85)", marginRight: "3px" }}>{token.word}</span>
+                            )}&rdquo;</>
+                        }
+                      </p>
+                    </div>
+                    {/* Try this — only when incorrect */}
+                    {!result.isCorrect && result.corrected && result.original && (
+                      <div>
+                        <p className="text-xs font-bold uppercase tracking-widest mb-1.5" style={{ color: "#00d9a0", letterSpacing: "0.1em" }}>Try this</p>
+                        <p className="text-sm leading-relaxed">
+                          &ldquo;{diffTokens(result.original, result.corrected, "corrected").map((token, idx) =>
+                            token.changed
+                              ? <mark key={idx} style={{ background: "rgba(0,217,160,0.2)", color: "#00d9a0", borderRadius: "3px", padding: "0 2px", marginRight: "3px" }}>{token.word}</mark>
+                              : <span key={idx} style={{ color: "rgba(255,255,255,0.85)", marginRight: "3px" }}>{token.word}</span>
+                          )}&rdquo;
+                        </p>
+                      </div>
+                    )}
+                    {result.tip && (
+                      <p className="text-xs leading-relaxed break-words" style={{ color: "rgba(255,255,255,0.4)" }}>{result.tip}</p>
+                    )}
+                  </ScrollFade>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleCopyAnswer(result.corrected || result.original || "")}
+                      className="flex-none px-5 py-3 rounded-2xl font-semibold text-sm transition-all active:scale-95 flex items-center justify-center gap-1.5"
+                      style={{ background: "#6d28d9", color: "#fff" }}
+                    >
+                      {answerCopied ? <><CheckIcon /><span>Copied</span></> : <><CopyIcon /><span>Copy</span></>}
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (continueState !== "idle") return;
+                        setContinueState("opening");
+                        setTimeout(() => setContinueState("idle"), 700);
+                      }}
+                      className="flex-1 py-3 rounded-2xl font-semibold text-sm transition-all active:scale-95 flex items-center justify-center gap-1.5"
+                      style={{ background: "rgba(255,255,255,0.08)", color: "#fff" }}
+                    >
+                      {continueState === "opening" ? <span>Opening...</span> : <><span>Continue in app</span><ArrowIcon /></>}
+                    </button>
+                  </div>
+                </>
+              )}
+
+              {/* ── Doubt → Meaning ── */}
+              {result.mode === "doubt" && result.intent === "meaning" && result.meaning && (
+                <>
+                  <div className="flex items-center justify-between">
+                    <button
+                      onClick={handleBack}
+                      title="Back"
+                      className="w-8 h-8 flex items-center justify-center rounded-full transition-all active:opacity-60"
+                      style={{ color: "rgba(255,255,255,0.5)", background: "rgba(255,255,255,0.08)" }}
+                    >
+                      <BackIcon />
+                    </button>
+                    <button
+                      onClick={() => handleSpeak(speakableText)}
+                      className={`w-8 h-8 flex items-center justify-center rounded-full transition-all active:opacity-60 ${isSpeaking ? "animate-pulse" : ""}`}
+                      style={{ color: isSpeaking ? "#a78bfa" : "rgba(255,255,255,0.5)", background: isSpeaking ? "rgba(109,40,217,0.35)" : "rgba(255,255,255,0.08)" }}
+                    >
+                      <SpeakerIcon />
+                    </button>
+                  </div>
+                  <ScrollFade>
+                    <p className="font-bold leading-tight break-words" style={{ color: "#00d9a0", fontSize: 20 }}>
+                      {result.phrase || result.transcription}
+                    </p>
+                    <p className="text-sm leading-relaxed break-words whitespace-pre-wrap" style={{ color: "rgba(255,255,255,0.9)" }}>
+                      <span style={{ color: "rgba(255,255,255,0.45)" }}>Meaning: </span>{result.meaning}
+                    </p>
+                    {result.example && (
+                      <p className="text-sm leading-relaxed break-words whitespace-pre-wrap" style={{ color: "rgba(255,255,255,0.9)" }}>
+                        <span style={{ color: "rgba(255,255,255,0.45)" }}>Example: </span>{result.example}
+                      </p>
+                    )}
+                  </ScrollFade>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleCopyAnswer(result.meaning!)}
+                      className="flex-none px-5 py-3 rounded-2xl font-semibold text-sm transition-all active:scale-95 flex items-center justify-center gap-1.5"
+                      style={{ background: "#6d28d9", color: "#fff" }}
+                    >
+                      {answerCopied ? <><CheckIcon /><span>Copied</span></> : <><CopyIcon /><span>Copy</span></>}
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (continueState !== "idle") return;
+                        setContinueState("opening");
+                        setTimeout(() => setContinueState("idle"), 700);
+                      }}
+                      className="flex-1 py-3 rounded-2xl font-semibold text-sm transition-all active:scale-95 flex items-center justify-center gap-1.5"
+                      style={{ background: "rgba(255,255,255,0.08)", color: "#fff" }}
+                    >
+                      {continueState === "opening" ? <span>Opening...</span> : <><span>Continue in app</span><ArrowIcon /></>}
+                    </button>
+                  </div>
+                </>
+              )}
+
+              {/* ── Doubt result (generic Q&A — fallback) ── */}
+              {result.mode === "doubt" && (!result.intent || result.intent === "doubt") && result.answer && (
                 <>
                   {/* Close header */}
                   <div className="flex items-center">
                     <button
-                      onClick={handleReset}
+                      onClick={handleBack}
+                      title="Back"
                       className="w-8 h-8 flex items-center justify-center rounded-full transition-all active:opacity-60"
                       style={{ color: "rgba(255,255,255,0.5)", background: "rgba(255,255,255,0.08)" }}
                     >
-                      <CloseIcon />
+                      <BackIcon />
                     </button>
                   </div>
 
@@ -495,17 +785,7 @@ export default function FloatingWidgetV5({ lang = "Tamil", apiEndpoint = "/api/s
                   )}
 
                   {/* Scrollable Q&A area */}
-                  <div className="relative">
-                  <div
-                    ref={doubtScrollRef}
-                    className="overflow-y-auto flex flex-col gap-3"
-                    style={{ maxHeight: "40vh" }}
-                    onScroll={(e) => {
-                      const el = e.currentTarget;
-                      const atBottom = el.scrollHeight - el.scrollTop <= el.clientHeight + 4;
-                      setShowDoubtFade(!atBottom);
-                    }}
-                  >
+                  <ScrollFade>
                     {/* You asked */}
                     <div>
                       <p className="text-xs font-bold uppercase tracking-widest mb-1.5" style={{ color: "rgba(255,255,255,0.35)", letterSpacing: "0.1em" }}>
@@ -541,21 +821,13 @@ export default function FloatingWidgetV5({ lang = "Tamil", apiEndpoint = "/api/s
                         {answerLang === "english" && result.answerEnglish ? result.answerEnglish : result.answer}
                       </p>
                     </div>
-                  </div>
-                  {/* Bottom fade hint — only when content overflows */}
-                  {showDoubtFade && (
-                    <div
-                      className="pointer-events-none absolute bottom-0 left-0 right-0 transition-opacity duration-300"
-                      style={{ height: 48, background: "linear-gradient(to bottom, transparent, rgba(14,14,20,0.97))" }}
-                    />
-                  )}
-                  </div>
+                  </ScrollFade>
 
                   {/* CTAs */}
                   <div className="flex gap-2">
                     <button
                       onClick={() => handleCopyAnswer(answerLang === "english" && result.answerEnglish ? result.answerEnglish : result.answer!)}
-                      className="flex-1 py-3 rounded-2xl font-semibold text-sm transition-all active:scale-95 flex items-center justify-center gap-1.5"
+                      className="flex-none px-5 py-3 rounded-2xl font-semibold text-sm transition-all active:scale-95 flex items-center justify-center gap-1.5"
                       style={{ background: "#6d28d9", color: "#fff" }}
                     >
                       {answerCopied ? <><CheckIcon /><span>Copied</span></> : <><CopyIcon /><span>Copy</span></>}
@@ -571,7 +843,7 @@ export default function FloatingWidgetV5({ lang = "Tamil", apiEndpoint = "/api/s
                     >
                       {continueState === "opening"
                         ? <span>Opening...</span>
-                        : <><span>Open in app</span><ArrowIcon /></>
+                        : <><span>Continue in app</span><ArrowIcon /></>
                       }
                     </button>
                   </div>

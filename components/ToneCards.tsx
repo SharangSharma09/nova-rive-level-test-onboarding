@@ -16,6 +16,19 @@ const RedirectArrow = () => (
   </svg>
 );
 
+const CopyIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+  </svg>
+);
+
+const CheckIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="20 6 9 17 4 12"/>
+  </svg>
+);
+
 const TONES = [
   { key: "casual",     label: "Casual",     emoji: "😊" },
   { key: "semiFormal", label: "Semi formal", emoji: "🙂" },
@@ -118,10 +131,10 @@ export default function ToneCards({ result, onClose, onActiveChange }: { result:
       <div className="flex gap-2">
         <button
           onClick={handleCopy}
-          className="flex-1 py-3 rounded-2xl font-semibold text-sm transition-all active:scale-95"
+          className="flex-1 py-3 rounded-2xl font-semibold text-sm transition-all active:scale-95 flex items-center justify-center gap-1.5"
           style={{ background: "#6d28d9", color: "#fff" }}
         >
-          {copied ? "✓ Copied!" : "Copy"}
+          {copied ? <><CheckIcon /><span>Copied</span></> : <><CopyIcon /><span>Copy</span></>}
         </button>
         <button
           onClick={handleEditInApp}
