@@ -8,6 +8,7 @@ export default function V4TamilOnboardingPage() {
       videoUrl={ONBOARDING_VIDEO_URL}
       videoCta={VIDEO_CTA}
       redirectTo="/v4-tamil"
+      lang="ta"
     />
   );
 }

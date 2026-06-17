@@ -23,15 +23,15 @@ export const VIDEO_CTA = "Try it now";
 
 export const TAMIL_SCREENS: OnboardingScreen[] = [
   {
-    text: "Nova widget-ஐ meet பண்ணுங்க — உங்க 24/7 personal English tutor, உங்க day-to-day English needs-க்கு help பண்ணும்.",
+    text: "Nova widget-ஐ meet பண்ணுங்க - உங்க 24/7 personal English tutor, உங்க day-to-day English needs-க்கு help பண்ணும்.",
     cta: "Continue",
   },
   {
-    text: "உங்களுக்கு English-related help வேணும்னா — like, யாருக்காவது English-ல message அனுப்பணும்னா — நீங்க இத use பண்ணலாம்.",
+    text: "நீங்க English-ல Message அனுப்பனுமா? நீங்க இத use பண்ணி தமிழ்-ல பேசி English Message அனுப்பலாம்.",
     cta: "Continue",
   },
   {
-    text: "உங்க ஒவ்வொரு English need-உம் solve ஆகும், அத்தோட நீங்க English-ஆ learn-உம் பண்ணிட்டு இருப்பீங்க.",
+    text: "உங்க எல்லா English needs-உம் solve ஆகும், கூடவே நீங்க English-ah learn-உம் பண்ணிட்டு இருப்பீங்க.",
     cta: "See how it works",
   },
 ];

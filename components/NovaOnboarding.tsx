@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 // Apps row hidden per design — uncomment these imports to restore the app-icons row.
 // import { FaWhatsapp, FaInstagram, FaTelegram, FaLinkedinIn } from "react-icons/fa";
@@ -22,14 +22,22 @@ type Props = {
   videoUrl: string;
   videoCta: string;
   redirectTo: string;
+  lang?: "ta" | "hi";
 };
 
-export default function NovaOnboarding({ screens, videoUrl, videoCta, redirectTo }: Props) {
+export default function NovaOnboarding({ screens, videoUrl, videoCta, redirectTo, lang }: Props) {
   const [step, setStep] = useState(0);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [playing, setPlaying] = useState(true);
 
   const isVideo = step >= screens.length;
+
+  useEffect(() => {
+    if (!lang || isVideo) return;
+    const audio = new Audio(`/tts/onboarding/${lang}-${step}.mp3`);
+    audio.play().catch(() => {});
+    return () => { audio.pause(); };
+  }, [step, lang, isVideo]);
 
   const togglePlay = () => {
     const v = videoRef.current;
@@ -53,7 +61,6 @@ export default function NovaOnboarding({ screens, videoUrl, videoCta, redirectTo
               style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
               autoPlay
               playsInline
-              loop
             />
 
             {/* Pause indicator */}

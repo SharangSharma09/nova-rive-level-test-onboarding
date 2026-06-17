@@ -8,6 +8,7 @@ export default function V3HindiOnboardingPage() {
       videoUrl={ONBOARDING_VIDEO_URL}
       videoCta={VIDEO_CTA}
       redirectTo="/v3-hindi"
+      lang="hi"
     />
   );
 }

@@ -8,6 +8,7 @@ export default function V3TamilOnboardingPage() {
       videoUrl={ONBOARDING_VIDEO_URL}
       videoCta={VIDEO_CTA}
       redirectTo="/v3-tamil"
+      lang="ta"
     />
   );
 }
