@@ -1,0 +1,136 @@
+{
+  "captionChunks": [
+    {
+      "id": "c1",
+      "startMs": 1000,
+      "endMs": 4970,
+      "ttsFile": "ta-1",
+      "words": [
+        { "text": "Superflow", "highlight": true },
+        { "text": "மூலமா" },
+        { "text": "எந்த" },
+        { "text": "App-லயும்", "highlight": true },
+        { "text": "English", "highlight": true },
+        { "text": "type பண்ணலாம்" }
+      ]
+    },
+    {
+      "id": "c2",
+      "startMs": 5800,
+      "endMs": 7680,
+      "ttsFile": "ta-2",
+      "words": [
+        { "text": "எந்த" },
+        { "text": "App-னாலும்", "highlight": true },
+        { "text": "open பண்ணுங்க" }
+      ]
+    },
+    {
+      "id": "c3",
+      "startMs": 9000,
+      "endMs": 11770,
+      "ttsFile": "ta-3",
+      "words": [
+        { "text": "Widget" },
+        { "text": "தெரிஞ்சதும்" },
+        { "text": "அதுல", "highlight": true },
+        { "text": "பேசுங்க", "highlight": true }
+      ]
+    },
+    {
+      "id": "c4-skip",
+      "startMs": 12200,
+      "endMs": 18890,
+      "ttsFile": "ta-4",
+      "skip": true,
+      "words": []
+    },
+    {
+      "id": "c5",
+      "startMs": 19200,
+      "endMs": 23880,
+      "ttsFile": "ta-5",
+      "words": [
+        { "text": "சில", "highlight": true },
+        { "text": "seconds-ல", "highlight": true },
+        { "text": "perfect English", "highlight": true },
+        { "text": "translate பண்ணிடும்" }
+      ]
+    },
+    {
+      "id": "c6",
+      "startMs": 23200,
+      "endMs": 27070,
+      "ttsFile": "ta-6",
+      "words": [
+        { "text": "Insert", "highlight": true },
+        { "text": "button-ல" },
+        { "text": "tap பண்ணுங்க", "highlight": true }
+      ]
+    },
+    {
+      "id": "c7",
+      "startMs": 30200,
+      "endMs": 33130,
+      "ttsFile": "ta-7",
+      "words": [
+        { "text": "LinkedIn", "highlight": true },
+        { "text": "post" },
+        { "text": "draft பண்ணனுமா?" }
+      ]
+    },
+    {
+      "id": "c8",
+      "startMs": 34500,
+      "endMs": 37430,
+      "ttsFile": "ta-8",
+      "words": [
+        { "text": "எந்த" },
+        { "text": "App-லயும்", "highlight": true },
+        { "text": "use பண்ணிக்கலாம்" }
+      ]
+    },
+    {
+      "id": "c9",
+      "startMs": 38200,
+      "endMs": 41520,
+      "ttsFile": "ta-9",
+      "words": [
+        { "text": "எந்த" },
+        { "text": "language-லயும்", "highlight": true },
+        { "text": "help பண்ணும்" }
+      ]
+    },
+    {
+      "id": "c10",
+      "startMs": 41800,
+      "endMs": 44230,
+      "ttsFile": "ta-10",
+      "words": [
+        { "text": "ஒரு தடவை", "highlight": true },
+        { "text": "பேசுங்க" }
+      ]
+    },
+    {
+      "id": "c11",
+      "startMs": 44400,
+      "endMs": 46280,
+      "ttsFile": "ta-11",
+      "words": [
+        { "text": "Extra steps", "highlight": true },
+        { "text": "இல்ல ✨" }
+      ]
+    },
+    {
+      "id": "c12",
+      "startMs": 45800,
+      "endMs": 48390,
+      "ttsFile": "ta-12",
+      "words": [
+        { "text": "யோசிங்க", "highlight": true },
+        { "text": "சொல்லுங்க", "highlight": true },
+        { "text": "வேலை done", "highlight": true }
+      ]
+    }
+  ]
+}

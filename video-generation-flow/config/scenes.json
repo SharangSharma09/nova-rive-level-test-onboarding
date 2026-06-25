@@ -1,0 +1,12 @@
+{
+  "scenes": [
+    { "name": "Icons",     "durationMs": 5000 },
+    { "name": "WhatsApp",  "durationMs": 12000 },
+    { "name": "Response",  "durationMs": 9000 },
+    { "name": "Sent",      "durationMs": 3000 },
+    { "name": "Spotlight", "durationMs": 8000 },
+    { "name": "Languages", "durationMs": 8000 },
+    { "name": "Outro",     "durationMs": 5000 }
+  ],
+  "totalDurationMs": 50000
+}

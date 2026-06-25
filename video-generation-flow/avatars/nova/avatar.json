@@ -1,0 +1,22 @@
+{
+  "name": "Nova",
+  "role": "teacher",
+  "cartesiaVoiceId": "d229d905-1887-42df-8eed-ebfaeea6d26f",
+  "cartesiaModel": "sonic-3.5",
+  "cartesiaKeyEnv": "NAWIN_CARTESIA_API_KEY",
+  "heygenEngine": "avatar_iv",
+  "expressiveness": "high",
+  "backgroundPrompt": "A warm, bright modern study nook: a clean light-cream wall softly out of focus, a hint of a wooden shelf with a few blurred books and a small green plant on one side, gentle natural daylight. Friendly, professional, uncluttered — not busy.",
+  "motionSeeds": {
+    "curious": "Slight head tilt, gentle inquiring smile, hands relaxed.",
+    "warm_teaching": "Soft palm-up gesture, encouraging nod, warm sincere smile.",
+    "confident": "Open palms gesture, confident posture, warm steady gaze.",
+    "enthusiastic": "Big inviting hand gesture, bright smile, eager energy.",
+    "calm_listen": "Hands lowered and still, subtle nodding, calm attentive."
+  },
+  "idleMotion": "Calm attentive expression, subtle breathing and occasional blink, hands relaxed at chest.",
+  "avatarId": "8a41030def87456db43e7023b8673b0d",
+  "groupId": null,
+  "imageKey": "image/8661169f38f0426a81e10d000f1b10a5/original.png",
+  "avatarMode": "v3"
+}

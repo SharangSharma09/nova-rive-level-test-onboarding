@@ -1,0 +1,646 @@
+{
+  "ttsCues": [
+    {
+      "file": "ta-1.mp3",
+      "ms": 1000,
+      "durationMs": 3970,
+      "scene": 1,
+      "note": "icons fully revealed",
+      "text": "Superflow moolama neenga endha app la venalum English la type pannalam.",
+      "words": [
+        {
+          "word": "Superflow",
+          "startMs": 0,
+          "endMs": 420
+        },
+        {
+          "word": "moolama",
+          "startMs": 450,
+          "endMs": 1020
+        },
+        {
+          "word": "neenga",
+          "startMs": 1020,
+          "endMs": 1320
+        },
+        {
+          "word": "endha",
+          "startMs": 1320,
+          "endMs": 1620
+        },
+        {
+          "word": "app",
+          "startMs": 1620,
+          "endMs": 1890
+        },
+        {
+          "word": "la",
+          "startMs": 1890,
+          "endMs": 2010
+        },
+        {
+          "word": "venaalum",
+          "startMs": 2010,
+          "endMs": 2430
+        },
+        {
+          "word": "English",
+          "startMs": 2430,
+          "endMs": 2820
+        },
+        {
+          "word": "la",
+          "startMs": 2820,
+          "endMs": 2910
+        },
+        {
+          "word": "type",
+          "startMs": 2910,
+          "endMs": 3210
+        },
+        {
+          "word": "pannalam",
+          "startMs": 3210,
+          "endMs": 3750
+        }
+      ]
+    },
+    {
+      "file": "ta-2.mp3",
+      "ms": 5800,
+      "durationMs": 1880,
+      "scene": 2,
+      "note": "phone entered, chat visible",
+      "text": "endha app-nalum open pannunga.",
+      "words": [
+        {
+          "word": "endha",
+          "startMs": 0,
+          "endMs": 270
+        },
+        {
+          "word": "app-naalum",
+          "startMs": 300,
+          "endMs": 810
+        },
+        {
+          "word": "open",
+          "startMs": 840,
+          "endMs": 1320
+        },
+        {
+          "word": "pannunga",
+          "startMs": 1320,
+          "endMs": 1880
+        }
+      ]
+    },
+    {
+      "file": "ta-3.mp3",
+      "ms": 9000,
+      "durationMs": 2690,
+      "scene": 2,
+      "note": "SF button visible, tap it",
+      "text": "Screenla widget therinjadhum adha click panni pesunga",
+      "words": [
+        {
+          "word": "Screenla",
+          "startMs": 10,
+          "endMs": 480
+        },
+        {
+          "word": "widget",
+          "startMs": 480,
+          "endMs": 980
+        },
+        {
+          "word": "therinjadhum",
+          "startMs": 1010,
+          "endMs": 1540
+        },
+        {
+          "word": "adha",
+          "startMs": 1540,
+          "endMs": 1740
+        },
+        {
+          "word": "click",
+          "startMs": 1740,
+          "endMs": 2040
+        },
+        {
+          "word": "panni",
+          "startMs": 2040,
+          "endMs": 2270
+        },
+        {
+          "word": "pesunga",
+          "startMs": 2270,
+          "endMs": 2690
+        }
+      ]
+    },
+    {
+      "file": "ta-4.mp3",
+      "ms": 12240,
+      "durationMs": 6910,
+      "scene": 2,
+      "note": "voice recorder demo (demo voice)",
+      "volumeBoost": 2,
+      "text": "Hi, proposal almost ready. Just konjam details finalize pannitu irukom. Naanga idha client-ku naalaikulla send panniduvom.",
+      "words": [
+        {
+          "word": "Hi,",
+          "startMs": 319,
+          "endMs": 509
+        },
+        {
+          "word": "proposal",
+          "startMs": 779,
+          "endMs": 1239
+        },
+        {
+          "word": "almost",
+          "startMs": 1239,
+          "endMs": 1599
+        },
+        {
+          "word": "ready.",
+          "startMs": 1599,
+          "endMs": 1899
+        },
+        {
+          "word": "Just",
+          "startMs": 2409,
+          "endMs": 2679
+        },
+        {
+          "word": "konjam",
+          "startMs": 2709,
+          "endMs": 3069
+        },
+        {
+          "word": "details",
+          "startMs": 3069,
+          "endMs": 3459
+        },
+        {
+          "word": "finalize",
+          "startMs": 3459,
+          "endMs": 3879
+        },
+        {
+          "word": "pannitu",
+          "startMs": 3879,
+          "endMs": 4179
+        },
+        {
+          "word": "irukom.",
+          "startMs": 4179,
+          "endMs": 4509
+        },
+        {
+          "word": "Naanga",
+          "startMs": 4809,
+          "endMs": 5079
+        },
+        {
+          "word": "idha",
+          "startMs": 5079,
+          "endMs": 5289
+        },
+        {
+          "word": "client-ku",
+          "startMs": 5289,
+          "endMs": 5679
+        },
+        {
+          "word": "naalaiku",
+          "startMs": 5679,
+          "endMs": 6009
+        },
+        {
+          "word": "ulla",
+          "startMs": 6009,
+          "endMs": 6189
+        },
+        {
+          "word": "send",
+          "startMs": 6189,
+          "endMs": 6489
+        },
+        {
+          "word": "panniduvom.",
+          "startMs": 6489,
+          "endMs": 6909
+        }
+      ]
+    },
+    {
+      "file": "ta-5.mp3",
+      "ms": 19200,
+      "durationMs": 4680,
+      "scene": 3,
+      "note": "Generating pill visible",
+      "text": "Superflow neenga pesuradha just sila seconds la perfect English ah translate pannidum.",
+      "words": [
+        {
+          "word": "Superflow",
+          "startMs": 0,
+          "endMs": 520
+        },
+        {
+          "word": "neenga",
+          "startMs": 720,
+          "endMs": 1020
+        },
+        {
+          "word": "pesuradha",
+          "startMs": 1020,
+          "endMs": 1500
+        },
+        {
+          "word": "just",
+          "startMs": 1620,
+          "endMs": 1920
+        },
+        {
+          "word": "sila",
+          "startMs": 1920,
+          "endMs": 2120
+        },
+        {
+          "word": "seconds",
+          "startMs": 2120,
+          "endMs": 2520
+        },
+        {
+          "word": "la",
+          "startMs": 2520,
+          "endMs": 2620
+        },
+        {
+          "word": "perfect",
+          "startMs": 2820,
+          "endMs": 3220
+        },
+        {
+          "word": "English",
+          "startMs": 3220,
+          "endMs": 3620
+        },
+        {
+          "word": "ah",
+          "startMs": 3620,
+          "endMs": 3720
+        },
+        {
+          "word": "translate",
+          "startMs": 3820,
+          "endMs": 4220
+        },
+        {
+          "word": "pannidum",
+          "startMs": 4220,
+          "endMs": 4620
+        }
+      ]
+    },
+    {
+      "file": "ta-6.mp3",
+      "ms": 23880,
+      "durationMs": 3870,
+      "scene": 3,
+      "note": "response card up, Insert button",
+      "text": "aprom English text-ah paste panna Insert button-la tap pannunga.",
+      "words": [
+        {
+          "word": "apro",
+          "startMs": 159,
+          "endMs": 459
+        },
+        {
+          "word": "English",
+          "startMs": 609,
+          "endMs": 969
+        },
+        {
+          "word": "text-a",
+          "startMs": 969,
+          "endMs": 1329
+        },
+        {
+          "word": "paste",
+          "startMs": 1329,
+          "endMs": 1629
+        },
+        {
+          "word": "panna,",
+          "startMs": 1629,
+          "endMs": 1929
+        },
+        {
+          "word": "insert",
+          "startMs": 2259,
+          "endMs": 2619
+        },
+        {
+          "word": "button-la",
+          "startMs": 2619,
+          "endMs": 3009
+        },
+        {
+          "word": "tap",
+          "startMs": 3009,
+          "endMs": 3249
+        },
+        {
+          "word": "pannunga.",
+          "startMs": 3249,
+          "endMs": 3669
+        }
+      ]
+    },
+    {
+      "file": "ta-7.mp3",
+      "ms": 30200,
+      "durationMs": 2930,
+      "scene": 5,
+      "note": "LinkedIn post?",
+      "text": "LinkedIn la post draft pannuma illa email send pannuma?",
+      "words": [
+        {
+          "word": "LinkedIn",
+          "startMs": 210,
+          "endMs": 630
+        },
+        {
+          "word": "la",
+          "startMs": 630,
+          "endMs": 810
+        },
+        {
+          "word": "post",
+          "startMs": 900,
+          "endMs": 1170
+        },
+        {
+          "word": "draft",
+          "startMs": 1170,
+          "endMs": 1500
+        },
+        {
+          "word": "pannuma",
+          "startMs": 1500,
+          "endMs": 1980
+        },
+        {
+          "word": "illa",
+          "startMs": 2100,
+          "endMs": 2280
+        },
+        {
+          "word": "email",
+          "startMs": 2310,
+          "endMs": 2580
+        },
+        {
+          "word": "send",
+          "startMs": 2580,
+          "endMs": 2820
+        },
+        {
+          "word": "pannuma",
+          "startMs": 2820,
+          "endMs": 3210
+        }
+      ]
+    },
+    {
+      "file": "ta-8.mp3",
+      "ms": 34500,
+      "durationMs": 2930,
+      "scene": 5,
+      "note": "any app",
+      "text": "Neenga idha endha app-la venumnaalum easily use pannalaam.",
+      "words": [
+        {
+          "word": "Neenga",
+          "startMs": 0,
+          "endMs": 270
+        },
+        {
+          "word": "idha",
+          "startMs": 270,
+          "endMs": 480
+        },
+        {
+          "word": "endha",
+          "startMs": 480,
+          "endMs": 750
+        },
+        {
+          "word": "app",
+          "startMs": 750,
+          "endMs": 1020
+        },
+        {
+          "word": "la",
+          "startMs": 1020,
+          "endMs": 1110
+        },
+        {
+          "word": "venumnaalum",
+          "startMs": 1110,
+          "endMs": 1680
+        },
+        {
+          "word": "easily",
+          "startMs": 1710,
+          "endMs": 2070
+        },
+        {
+          "word": "use",
+          "startMs": 2070,
+          "endMs": 2310
+        },
+        {
+          "word": "pannalaam",
+          "startMs": 2310,
+          "endMs": 2820
+        }
+      ]
+    },
+    {
+      "file": "ta-9.mp3",
+      "ms": 38200,
+      "durationMs": 3320,
+      "scene": 6,
+      "note": "language buttons",
+      "text": "Superflow ungalukku endha language la venumnalum pesa help pannum.",
+      "words": [
+        {
+          "word": "Superflow",
+          "startMs": 0,
+          "endMs": 420
+        },
+        {
+          "word": "ungalukku",
+          "startMs": 450,
+          "endMs": 1020
+        },
+        {
+          "word": "endha",
+          "startMs": 1050,
+          "endMs": 1320
+        },
+        {
+          "word": "language",
+          "startMs": 1350,
+          "endMs": 1770
+        },
+        {
+          "word": "la",
+          "startMs": 1770,
+          "endMs": 1890
+        },
+        {
+          "word": "venumnaalum",
+          "startMs": 1920,
+          "endMs": 2490
+        },
+        {
+          "word": "pesa",
+          "startMs": 2520,
+          "endMs": 2820
+        },
+        {
+          "word": "help",
+          "startMs": 2850,
+          "endMs": 3120
+        },
+        {
+          "word": "pannum.",
+          "startMs": 3150,
+          "endMs": 3480
+        }
+      ]
+    },
+    {
+      "file": "ta-10.mp3",
+      "ms": 41800,
+      "durationMs": 2430,
+      "scene": 6,
+      "note": "oru thadavai",
+      "text": "Just oru thadava pesunga. Send pannidunga.",
+      "words": [
+        {
+          "word": "Just",
+          "startMs": 0,
+          "endMs": 210
+        },
+        {
+          "word": "oru",
+          "startMs": 210,
+          "endMs": 420
+        },
+        {
+          "word": "thadava",
+          "startMs": 420,
+          "endMs": 780
+        },
+        {
+          "word": "pesunga.",
+          "startMs": 780,
+          "endMs": 1320
+        },
+        {
+          "word": "Send",
+          "startMs": 1620,
+          "endMs": 1920
+        },
+        {
+          "word": "pannidunga.",
+          "startMs": 1920,
+          "endMs": 2400
+        }
+      ]
+    },
+    {
+      "file": "ta-11.mp3",
+      "ms": 44400,
+      "durationMs": 1880,
+      "scene": 6,
+      "note": "extra steps illa",
+      "text": "endha extra steps-um illa.",
+      "words": [
+        {
+          "word": "yendha",
+          "startMs": 120,
+          "endMs": 390
+        },
+        {
+          "word": "extra",
+          "startMs": 420,
+          "endMs": 720
+        },
+        {
+          "word": "steps-um",
+          "startMs": 750,
+          "endMs": 1110
+        },
+        {
+          "word": "illa",
+          "startMs": 1140,
+          "endMs": 1410
+        }
+      ]
+    },
+    {
+      "file": "ta-12.mp3",
+      "ms": 46280,
+      "durationMs": 2590,
+      "scene": 7,
+      "note": "outro tagline",
+      "text": "Yosinga. Sollunga. Velai done.",
+      "words": [
+        {
+          "word": "Yosinga",
+          "startMs": 0,
+          "endMs": 510
+        },
+        {
+          "word": "Sollunga",
+          "startMs": 1020,
+          "endMs": 1530
+        },
+        {
+          "word": "Velai",
+          "startMs": 1920,
+          "endMs": 2220
+        },
+        {
+          "word": "done",
+          "startMs": 2220,
+          "endMs": 2490
+        }
+      ]
+    }
+  ],
+  "clickCues": [
+    {
+      "ms": 9500,
+      "note": "tap SF button"
+    },
+    {
+      "ms": 15500,
+      "note": "tap ✓ button"
+    },
+    {
+      "ms": 23100,
+      "note": "tap Insert button"
+    }
+  ],
+  "defaultVolume": 0.78,
+  "totalDurationMs": 50000
+}

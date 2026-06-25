@@ -1,0 +1,14 @@
+{
+  "languages": [
+    { "id": "english",   "name": "English",   "rules": "rules/english.md" },
+    { "id": "tamil",     "name": "Tamil",     "rules": "rules/tamil.md" },
+    { "id": "hindi",     "name": "Hindi",     "rules": "rules/hindi.md" },
+    { "id": "telugu",    "name": "Telugu",    "rules": "rules/telugu.md" },
+    { "id": "gujarati",  "name": "Gujarati",  "rules": "rules/gujarati.md" },
+    { "id": "bengali",   "name": "Bengali",   "rules": "rules/bengali.md" },
+    { "id": "marathi",   "name": "Marathi",   "rules": "rules/marathi.md" },
+    { "id": "kannada",   "name": "Kannada",   "rules": "rules/kannada.md" },
+    { "id": "malayalam", "name": "Malayalam", "rules": "rules/malayalam.md" },
+    { "id": "punjabi",   "name": "Punjabi",   "rules": "rules/punjabi.md" }
+  ]
+}
