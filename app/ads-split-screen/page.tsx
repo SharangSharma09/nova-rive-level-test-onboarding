@@ -226,7 +226,7 @@ export default function AdsSplitScreen() {
 
   // Edit one segment's Spoken (text → TTS) or Caption (roman) for a language.
   function updateSeg(lang: string, id: string, field: 'text' | 'roman', val: string) {
-    setEditedSpecs(p => ({ ...p, [lang]: { ...(p[lang] ?? {}), [id]: { text: '', roman: '', ...(p[lang]?.[id]), [field]: val } } }));
+    setEditedSpecs(p => ({ ...p, [lang]: { ...(p[lang] ?? {}), [id]: { ...{ text: '', roman: '' }, ...(p[lang]?.[id]), [field]: val } } }));
   }
 
   // Paste a whole script for one language → distribute its lines onto the rows in turn order.
