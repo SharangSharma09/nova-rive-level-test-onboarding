@@ -5,33 +5,16 @@ import FloatingWidgetV5 from "./FloatingWidgetV5";
 import TianjinScreen1 from "./TianjinScreen1";
 
 const STEPS = [
-  {
-    background: "screen1" as const,
-    tts: "यह देखो Supernova का AI widget! Tap करो और English help पाओ।",
-  },
-  {
-    background: "/tianjin/screen-2.svg",
-    tts: "दो options हैं — doubt पूछो, या English में message बनाओ।",
-  },
-  {
-    background: "/tianjin/screen-3.svg",
-    tts: "बोलिए: Classic का क्या meaning है?",
-  },
-  {
-    background: "/tianjin/screen-4.svg",
-    tts: "Superflow समझ रहा है... बस 7 seconds में जवाब आएगा!",
-  },
-  {
-    background: "/tianjin/screen-5.svg",
-    tts: "Amazing, isn't it? आपका English doubt solve हो गया!",
-  },
+  { background: "screen1" as const, tts: "/tts/tianjin/hi-0.mp3" },
+  { background: "/tianjin/screen-2.svg", tts: "/tts/tianjin/hi-1.mp3" },
+  { background: "/tianjin/screen-3.svg", tts: "/tts/tianjin/hi-2.mp3" },
+  { background: "/tianjin/screen-4.svg", tts: "/tts/tianjin/hi-3.mp3" },
+  { background: "/tianjin/screen-5.svg", tts: "/tts/tianjin/hi-4.mp3" },
 ];
 
 export default function TianjinDemo() {
   const [step, setStep] = useState(0);
-  const audioBlobUrls = useRef<Map<number, string>>(new Map());
   const currentAudio = useRef<HTMLAudioElement | null>(null);
-  const loadingRef = useRef<Set<number>>(new Set());
   const phoneRef = useRef<HTMLDivElement>(null);
   const [containerDims, setContainerDims] = useState<{ w: number; h: number } | null>(null);
 
@@ -46,81 +29,23 @@ export default function TianjinDemo() {
     return () => obs.disconnect();
   }, []);
 
-  const playStep = useCallback(async (idx: number) => {
+  // Play pre-generated static MP3 — no API call needed
+  const playStep = useCallback((idx: number) => {
     if (currentAudio.current) {
       currentAudio.current.pause();
       currentAudio.current = null;
     }
-
-    let url = audioBlobUrls.current.get(idx);
-    if (!url) {
-      if (loadingRef.current.has(idx)) return;
-      loadingRef.current.add(idx);
-      try {
-        console.log("[tianjin-demo] fetching TTS for step", idx);
-        const res = await fetch("/api/tts-demo", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: STEPS[idx].tts }),
-        });
-        if (!res.ok) {
-          console.error("[tianjin-demo] TTS error", res.status);
-          return;
-        }
-        const blob = await res.blob();
-        url = URL.createObjectURL(blob);
-        audioBlobUrls.current.set(idx, url);
-        console.log("[tianjin-demo] TTS ready for step", idx);
-      } catch (e) {
-        console.error("[tianjin-demo] TTS fetch failed", e);
-        return;
-      } finally {
-        loadingRef.current.delete(idx);
-      }
-    }
-
-    const audio = new Audio(url);
+    const audio = new Audio(STEPS[idx].tts);
     currentAudio.current = audio;
-    audio.play().catch((e) =>
-      console.warn("[tianjin-demo] autoplay blocked", e)
-    );
+    audio.play().catch((e) => console.warn("[tianjin-demo] autoplay blocked", e));
   }, []);
 
   useEffect(() => {
     playStep(step);
   }, [step, playStep]);
 
-  // Preload next step TTS
   useEffect(() => {
-    const next = (step + 1) % STEPS.length;
-    if (audioBlobUrls.current.has(next) || loadingRef.current.has(next)) return;
-    const t = setTimeout(async () => {
-      if (audioBlobUrls.current.has(next)) return;
-      loadingRef.current.add(next);
-      try {
-        const res = await fetch("/api/tts-demo", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: STEPS[next].tts }),
-        });
-        if (!res.ok) return;
-        const blob = await res.blob();
-        audioBlobUrls.current.set(next, URL.createObjectURL(blob));
-        console.log("[tianjin-demo] preloaded TTS for step", next);
-      } catch {
-        // silent
-      } finally {
-        loadingRef.current.delete(next);
-      }
-    }, 1500);
-    return () => clearTimeout(t);
-  }, [step]);
-
-  useEffect(() => {
-    return () => {
-      if (currentAudio.current) currentAudio.current.pause();
-      audioBlobUrls.current.forEach((url) => URL.revokeObjectURL(url));
-    };
+    return () => { if (currentAudio.current) currentAudio.current.pause(); };
   }, []);
 
   const advance = useCallback(() => {
