@@ -5,6 +5,16 @@
   50%       { box-shadow: 0 0 0 5px rgba(168,85,247,0.3), 0 0 32px 12px rgba(139,92,246,0.5), 0 4px 16px rgba(0,0,0,0.4); }
 }
 
+@keyframes coach-ripple {
+  0%   { transform: scale(0.5); opacity: 0.9; }
+  100% { transform: scale(2.8); opacity: 0; }
+}
+
+@keyframes coach-bounce {
+  0%, 100% { transform: translateY(0px); }
+  50%       { transform: translateY(-5px); }
+}
+
 :root {
   --background: #ffffff;
   --foreground: #171717;

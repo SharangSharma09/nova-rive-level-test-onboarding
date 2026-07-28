@@ -1,9 +1,14 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect, useLayoutEffect, type ReactNode } from "react";
+import dynamic from "next/dynamic";
 import { createRecorder, type Recorder } from "@/lib/recorder";
 import { speak, stopSpeaking } from "@/lib/tts";
 import ToneCards from "./ToneCards";
+import tapAnimation from "@/public/tianjin/tap.json";
+import arrowAnimation from "@/public/tianjin/arrow-right.json";
+
+const Lottie = dynamic(() => import("lottie-react"), { ssr: false });
 
 type V5Mode = "localize" | "doubt";
 type V5DoubtIntent = "translate" | "meaning" | "grammar" | "doubt";
@@ -158,6 +163,11 @@ const ArrowIcon = () => (
 interface FloatingWidgetV5Props {
   lang?: "Tamil" | "Hindi";
   apiEndpoint?: string;
+  viewportWidth?: number;
+  viewportHeight?: number;
+  showCoachMark?: boolean;
+  recordingPrompt?: string;
+  resultPrompt?: string;
 }
 
 const LANG_COPY = {
@@ -175,7 +185,7 @@ const LANG_COPY = {
   },
 };
 
-export default function FloatingWidgetV5({ lang = "Tamil", apiEndpoint = "/api/superflow/v5" }: FloatingWidgetV5Props = {}) {
+export default function FloatingWidgetV5({ lang = "Tamil", apiEndpoint = "/api/superflow/v5", viewportWidth, viewportHeight, showCoachMark = false, recordingPrompt, resultPrompt }: FloatingWidgetV5Props = {}) {
   const copy = LANG_COPY[lang] ?? LANG_COPY.Tamil;
   const [state, setState] = useState<V5State>("closed");
   const [activeMode, setActiveMode] = useState<V5Mode | null>(null);
@@ -187,6 +197,8 @@ export default function FloatingWidgetV5({ lang = "Tamil", apiEndpoint = "/api/s
   const [answerLang, setAnswerLang] = useState<"local" | "english">("local");
   const [activeDraftText, setActiveDraftText] = useState<string | null>(null);
   const [continueState, setContinueState] = useState<"idle" | "opening">("idle");
+  const [hasInteracted, setHasInteracted] = useState(false);
+  const [hasSelectedMode, setHasSelectedMode] = useState(false);
 
   const dragging = useRef(false);
   const dragOffset = useRef({ x: 0, y: 0 });
@@ -197,13 +209,22 @@ export default function FloatingWidgetV5({ lang = "Tamil", apiEndpoint = "/api/s
   const analyserRef = useRef<AnalyserNode | null>(null);
 
   useEffect(() => {
-    setPos({ x: Math.round(window.innerWidth * 0.72), y: Math.round(window.innerHeight * 0.28) });
-  }, []);
+    const w = viewportWidth ?? window.innerWidth;
+    const h = viewportHeight ?? window.innerHeight;
+    setPos({ x: Math.round(w * 0.72), y: Math.round(h * 0.28) });
+  }, [viewportWidth, viewportHeight]);
+
+  useEffect(() => {
+    if (state !== "closed") setHasInteracted(true);
+    if (state === "recording" || state === "analyzing" || state === "result") {
+      setHasSelectedMode(true);
+    }
+  }, [state]);
 
   const clamp = useCallback((x: number, y: number) => ({
-    x: Math.max(12, Math.min(window.innerWidth - 76, x)),
-    y: Math.max(12, Math.min(window.innerHeight - 76, y)),
-  }), []);
+    x: Math.max(12, Math.min((viewportWidth ?? window.innerWidth) - 76, x)),
+    y: Math.max(12, Math.min((viewportHeight ?? window.innerHeight) - 76, y)),
+  }), [viewportWidth, viewportHeight]);
 
   const stopAnimation = useCallback(() => {
     if (animFrameRef.current) {
@@ -407,11 +428,13 @@ export default function FloatingWidgetV5({ lang = "Tamil", apiEndpoint = "/api/s
     }
   }, [state]);
 
-  const panelAbove = typeof window !== "undefined" ? pos.y > window.innerHeight / 2 : true;
+  const vw = viewportWidth ?? (typeof window !== "undefined" ? window.innerWidth : 430);
+  const vh = viewportHeight ?? (typeof window !== "undefined" ? window.innerHeight : 800);
+  const panelAbove = pos.y > vh / 2;
   const isOpen = state !== "closed";
-  const panelLeft = typeof window !== "undefined" ? Math.min(pos.x, window.innerWidth - 320) : pos.x;
+  const panelLeft = Math.min(pos.x, vw - 320);
   const panelPosition = panelAbove
-    ? { bottom: typeof window !== "undefined" ? window.innerHeight - pos.y + 12 : 100 }
+    ? { bottom: vh - pos.y + 12 }
     : { top: pos.y + 76 };
 
   const speakableText =
@@ -884,6 +907,126 @@ export default function FloatingWidgetV5({ lang = "Tamil", apiEndpoint = "/api/s
             </button>
           </div>
         </div>
+      )}
+
+      {/* Coach mark 2 — "Ask a doubt chuniye" shown when menu is open, left of the "Any doubt" option */}
+      {showCoachMark && hasInteracted && !hasSelectedMode && state === "mode_select" && (
+        <div
+          className="fixed z-[55] pointer-events-none"
+          style={{
+            left: panelLeft - 12,
+            // "Any doubt" is the 2nd option: header ~36px + option1 ~70px + gaps ~28px + padding ~16px = ~150px from panel top
+            top: panelAbove
+              ? pos.y - 12 - 220 + 150  // panel bottom is pos.y-12, panel is ~220px tall, +150 to reach option2
+              : pos.y + 76 + 150,        // panel top is pos.y+76, +150 to reach option2
+            transform: "translateX(-100%)",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "flex-end",
+            gap: 2,
+          }}
+        >
+          <span style={{
+            color: "#8652FF",
+            fontSize: 16,
+            fontWeight: 800,
+            whiteSpace: "nowrap",
+            lineHeight: 1.25,
+            textAlign: "right",
+            textShadow: "0 1px 8px rgba(255,255,255,0.6)",
+          }}>
+            Ask a doubt<br />chuniye
+          </span>
+          {/* Arrow Lottie pointing right toward the "Any doubt" option */}
+          <Lottie
+            animationData={arrowAnimation}
+            loop
+            style={{ width: 80, height: 20, alignSelf: "flex-end" }}
+          />
+        </div>
+      )}
+
+      {/* Coach mark 4 — result prompt shown below the result panel */}
+      {resultPrompt && state === "result" && (
+        <div
+          className="fixed z-[55] pointer-events-none"
+          style={{
+            left: 20,
+            top: panelAbove ? pos.y - 160 : pos.y + 76 - 120,
+            maxWidth: "65%",
+          }}
+        >
+          <span style={{
+            color: "#8652FF",
+            fontSize: 18,
+            fontWeight: 800,
+            lineHeight: 1.35,
+          }}>
+            {resultPrompt}
+          </span>
+        </div>
+      )}
+
+      {/* Coach mark 3 — recording prompt shown above the waveform bar */}
+      {recordingPrompt && state === "recording" && (
+        <div
+          className="fixed z-[55] pointer-events-none"
+          style={{
+            left: 20,
+            top: panelAbove ? pos.y - 160 : pos.y + 76 - 120,
+            maxWidth: "65%",
+          }}
+        >
+          <span style={{
+            color: "#8652FF",
+            fontSize: 18,
+            fontWeight: 800,
+            lineHeight: 1.35,
+          }}>
+            {recordingPrompt}
+          </span>
+        </div>
+      )}
+
+      {/* Coach mark — Lottie centered on the widget button, label below */}
+      {showCoachMark && !hasInteracted && (
+        <>
+          {/* Tap Lottie — overlaid directly on the button, centered horizontally */}
+          <div
+            className="fixed z-[56] pointer-events-none"
+            style={{
+              left: pos.x + 32 - 24, // center horizontally on 64px button
+              top: pos.y + 24,        // finger tap lands on avatar center
+            }}
+          >
+            <Lottie
+              animationData={tapAnimation}
+              loop
+              style={{ width: 48, height: 66 }}
+            />
+          </div>
+
+          {/* "Tap to start" pill below the button */}
+          <div
+            className="fixed z-[55] pointer-events-none"
+            style={{
+              left: pos.x + 32,
+              top: pos.y + 100,
+              transform: "translateX(-50%)",
+              background: "#8652FF",
+              color: "#fff",
+              fontSize: 13,
+              fontWeight: 700,
+              borderRadius: 20,
+              padding: "5px 14px",
+              whiteSpace: "nowrap",
+              letterSpacing: "0.02em",
+              boxShadow: "0 2px 12px rgba(134,82,255,0.45)",
+            }}
+          >
+            Tap to start
+          </div>
+        </>
       )}
 
       {/* Nova draggable button */}
