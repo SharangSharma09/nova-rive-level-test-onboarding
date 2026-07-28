@@ -113,6 +113,9 @@ export default function TianjinDemo() {
           showCoachMark={step === 0}
           recordingPrompt={'Boliye: "Classic" ka kya meaning hai?'}
           resultPrompt={"Amazing, isnt?\nYour English doubt solved!"}
+          menuAudio="/tts/tianjin/hi-menu.mp3"
+          recordingAudio="/tts/tianjin/hi-2.mp3"
+          resultAudio="/tts/tianjin/hi-4.mp3"
         />
 
         {/* Step indicator dots */}

@@ -168,6 +168,9 @@ interface FloatingWidgetV5Props {
   showCoachMark?: boolean;
   recordingPrompt?: string;
   resultPrompt?: string;
+  menuAudio?: string;
+  recordingAudio?: string;
+  resultAudio?: string;
 }
 
 const LANG_COPY = {
@@ -185,7 +188,7 @@ const LANG_COPY = {
   },
 };
 
-export default function FloatingWidgetV5({ lang = "Tamil", apiEndpoint = "/api/superflow/v5", viewportWidth, viewportHeight, showCoachMark = false, recordingPrompt, resultPrompt }: FloatingWidgetV5Props = {}) {
+export default function FloatingWidgetV5({ lang = "Tamil", apiEndpoint = "/api/superflow/v5", viewportWidth, viewportHeight, showCoachMark = false, recordingPrompt, resultPrompt, menuAudio, recordingAudio, resultAudio }: FloatingWidgetV5Props = {}) {
   const copy = LANG_COPY[lang] ?? LANG_COPY.Tamil;
   const [state, setState] = useState<V5State>("closed");
   const [activeMode, setActiveMode] = useState<V5Mode | null>(null);
@@ -220,6 +223,20 @@ export default function FloatingWidgetV5({ lang = "Tamil", apiEndpoint = "/api/s
       setHasSelectedMode(true);
     }
   }, [state]);
+
+  const coachAudioRef = useRef<HTMLAudioElement | null>(null);
+  useEffect(() => {
+    if (coachAudioRef.current) { coachAudioRef.current.pause(); coachAudioRef.current = null; }
+    let url: string | undefined;
+    if (state === "mode_select") url = menuAudio;
+    else if (state === "recording") url = recordingAudio;
+    else if (state === "result") url = resultAudio;
+    if (url) {
+      const audio = new Audio(url);
+      coachAudioRef.current = audio;
+      audio.play().catch(() => {});
+    }
+  }, [state, menuAudio, recordingAudio, resultAudio]);
 
   const clamp = useCallback((x: number, y: number) => ({
     x: Math.max(12, Math.min((viewportWidth ?? window.innerWidth) - 76, x)),
