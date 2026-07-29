@@ -9,6 +9,12 @@ export default function TianjinDemo() {
   const [containerDims, setContainerDims] = useState<{ w: number; h: number } | null>(null);
 
   useEffect(() => {
+    const audio = new Audio("/tts/tianjin/hi-0.mp3");
+    audio.play().catch(() => {});
+    return () => audio.pause();
+  }, []);
+
+  useEffect(() => {
     const el = phoneRef.current;
     if (!el) return;
     const obs = new ResizeObserver((entries) => {
