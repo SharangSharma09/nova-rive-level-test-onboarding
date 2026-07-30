@@ -61,7 +61,7 @@ export default function TianjinDemo() {
           recordingPrompt={'Boliye: "Classic" ka kya meaning hai?'}
           resultPrompt={"Amazing, isnt?\nYour English doubt solved!"}
           menuAudio="/tts/tianjin/hi-menu.mp3"
-          resultAudio="/tts/tianjin/hi-4.mp3"
+          resultAudio="/tts/tianjin/hi-result.mp3"
         />
       </div>
     </div>
