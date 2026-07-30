@@ -1,5 +1,5 @@
 import type { Viewport } from "next";
-import TianjinDemo from "@/components/TianjinDemo";
+import TianjinFlow from "@/components/TianjinFlow";
 
 export const viewport: Viewport = {
   width: 430,
@@ -9,5 +9,5 @@ export const viewport: Viewport = {
 };
 
 export default function TianjinV1Page() {
-  return <TianjinDemo />;
+  return <TianjinFlow />;
 }
