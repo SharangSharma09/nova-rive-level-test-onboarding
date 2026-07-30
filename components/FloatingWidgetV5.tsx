@@ -202,8 +202,10 @@ export default function FloatingWidgetV5({ lang = "Tamil", apiEndpoint = "/api/s
   const [continueState, setContinueState] = useState<"idle" | "opening">("idle");
   const [hasInteracted, setHasInteracted] = useState(false);
   const [hasSelectedMode, setHasSelectedMode] = useState(false);
+  const [recordingReady, setRecordingReady] = useState(false);
 
   const dragging = useRef(false);
+  const promptCancelRef = useRef(false);
   const dragOffset = useRef({ x: 0, y: 0 });
   const dragMoved = useRef(false);
   const recorderRef = useRef<Recorder | null>(null);
@@ -279,20 +281,32 @@ export default function FloatingWidgetV5({ lang = "Tamil", apiEndpoint = "/api/s
   }, []);
 
   useEffect(() => {
-    if (state === "recording" && analyserRef.current) {
+    if (state === "recording" && recordingReady && analyserRef.current) {
       drawWaveform(analyserRef.current);
     }
-  }, [state, drawWaveform]);
+  }, [state, recordingReady, drawWaveform]);
 
   const startRecording = useCallback(async (mode: V5Mode) => {
     console.log("[v5] starting recording — mode:", mode);
     setActiveMode(mode);
+    setRecordingReady(false);
+    promptCancelRef.current = false;
+    setState("recording");
+
+    if (recordingAudio) {
+      const audio = new Audio(recordingAudio);
+      audio.play().catch(() => {});
+    }
+
+    await new Promise<void>(resolve => setTimeout(resolve, 5000));
+    if (promptCancelRef.current) return;
+
     try {
       const recorder = await createRecorder();
       recorderRef.current = recorder;
       await recorder.start();
       analyserRef.current = recorder.getAnalyser();
-      setState("recording");
+      setRecordingReady(true);
     } catch (e: unknown) {
       const code = (e as { code?: string }).code;
       setErrorMsg(
@@ -302,9 +316,11 @@ export default function FloatingWidgetV5({ lang = "Tamil", apiEndpoint = "/api/s
       );
       setState("error");
     }
-  }, []);
+  }, [recordingAudio]);
 
   const cancelRecording = useCallback(() => {
+    promptCancelRef.current = true;
+    setRecordingReady(false);
     stopAnimation();
     recorderRef.current?.cleanup();
     recorderRef.current = null;
@@ -358,6 +374,8 @@ export default function FloatingWidgetV5({ lang = "Tamil", apiEndpoint = "/api/s
   }, [stopAnimation, activeMode]);
 
   const handleReset = useCallback(() => {
+    promptCancelRef.current = true;
+    setRecordingReady(false);
     stopAnimation();
     recorderRef.current?.cleanup();
     recorderRef.current = null;
@@ -375,6 +393,8 @@ export default function FloatingWidgetV5({ lang = "Tamil", apiEndpoint = "/api/s
 
   // Back from a result → return to the mode-select menu (clears the current result).
   const handleBack = useCallback(() => {
+    promptCancelRef.current = true;
+    setRecordingReady(false);
     stopAnimation();
     recorderRef.current?.cleanup();
     recorderRef.current = null;
@@ -517,20 +537,25 @@ export default function FloatingWidgetV5({ lang = "Tamil", apiEndpoint = "/api/s
                 </div>
               </button>
 
-              {/* Option 2 — Doubt */}
+              {/* Option 2 — Doubt (highlighted) */}
               <button
                 onClick={() => startRecording("doubt")}
                 className="w-full flex items-center gap-3 rounded-2xl p-3.5 text-left transition-all active:scale-95"
-                style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)" }}
+                style={{
+                  background: "linear-gradient(135deg, rgba(109,40,217,0.45), rgba(139,92,246,0.3))",
+                  border: "1.5px solid rgba(139,92,246,0.75)",
+                  boxShadow: "0 0 18px rgba(139,92,246,0.25)",
+                }}
               >
                 <div
                   className="flex-shrink-0 w-11 h-11 rounded-xl flex items-center justify-center text-xl"
-                  style={{ background: "rgba(255,255,255,0.08)" }}
+                  style={{ background: "rgba(139,92,246,0.3)" }}
                 >
                   ❓
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-sm leading-tight" style={{ color: "#fff" }}>{copy.option2}</p>
+                  <p className="font-bold text-sm leading-tight" style={{ color: "#d8b4fe" }}>{copy.option2}</p>
+                  <p className="text-xs mt-0.5" style={{ color: "rgba(167,139,250,0.65)" }}>Tap here →</p>
                 </div>
               </button>
             </div>
@@ -912,16 +937,34 @@ export default function FloatingWidgetV5({ lang = "Tamil", apiEndpoint = "/api/s
             >
               <CloseIcon />
             </button>
+
+            {/* Center: waveform when ready, pulsing prompt when preparing */}
             <div className="flex-1 flex items-center justify-center h-11">
-              <canvas ref={canvasRef} width={140} height={40} className="w-full h-full" />
+              {recordingReady ? (
+                <canvas ref={canvasRef} width={140} height={40} className="w-full h-full" />
+              ) : (
+                <span className="text-xs animate-pulse" style={{ color: "rgba(167,139,250,0.8)" }}>
+                  Ab boliye…
+                </span>
+              )}
             </div>
-            <button
-              onClick={stopAndAnalyze}
-              className="w-11 h-11 rounded-full flex items-center justify-center flex-shrink-0 transition-all active:scale-90"
-              style={{ background: "#6d28d9" }}
-            >
-              <span style={{ color: "#fff", fontSize: 20 }}>✓</span>
-            </button>
+
+            {/* Check button — only shown when mic is live; tap Lottie sits on top */}
+            <div className="relative flex-shrink-0">
+              <button
+                onClick={stopAndAnalyze}
+                disabled={!recordingReady}
+                className="w-11 h-11 rounded-full flex items-center justify-center transition-all active:scale-90"
+                style={{ background: recordingReady ? "#6d28d9" : "rgba(109,40,217,0.25)", opacity: recordingReady ? 1 : 0.4 }}
+              >
+                <span style={{ color: "#fff", fontSize: 20 }}>✓</span>
+              </button>
+              {recordingReady && (
+                <div className="pointer-events-none absolute" style={{ top: -14, left: -4, zIndex: 1 }}>
+                  <Lottie animationData={tapAnimation} loop style={{ width: 48, height: 66 }} />
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
