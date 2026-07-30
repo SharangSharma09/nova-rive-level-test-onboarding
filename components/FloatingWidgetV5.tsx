@@ -960,7 +960,7 @@ export default function FloatingWidgetV5({ lang = "Tamil", apiEndpoint = "/api/s
                 <span style={{ color: "#fff", fontSize: 20 }}>✓</span>
               </button>
               {recordingReady && (
-                <div className="pointer-events-none absolute" style={{ top: -14, left: -4, zIndex: 1 }}>
+                <div className="pointer-events-none absolute" style={{ top: -6, left: 2, zIndex: 1 }}>
                   <Lottie animationData={tapAnimation} loop style={{ width: 48, height: 66 }} />
                 </div>
               )}
