@@ -231,7 +231,6 @@ export default function FloatingWidgetV5({ lang = "Tamil", apiEndpoint = "/api/s
     if (coachAudioRef.current) { coachAudioRef.current.pause(); coachAudioRef.current = null; }
     let url: string | undefined;
     if (state === "mode_select") url = menuAudio;
-    else if (state === "recording") url = recordingAudio;
     else if (state === "result") url = resultAudio;
     if (url) {
       const audio = new Audio(url);
