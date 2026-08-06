@@ -2,29 +2,44 @@
 
 import { useEffect, useLayoutEffect, useRef, useState, useCallback } from "react";
 import dynamic from "next/dynamic";
-import { Volume2, Square } from "lucide-react";
+import { Volume2, Square, X } from "lucide-react";
 import { LevelSentence } from "@/lib/level-test-content";
 import { useMicRecorder } from "@/lib/voice/use-mic-recorder";
+import { buildPretestScript, stripEmojisForTts, type PretestRegister } from "@/lib/pretest-dialogue";
 
 const SupernovaAvatar = dynamic(
   () => import("@/components/SupernovaAvatar"),
   {
     ssr: false,
     loading: () => (
-      <div className="w-full bg-white" style={{ height: "35dvh" }} />
+      <div style={{ width: "320px", height: "240px", backgroundColor: "#000000", borderRadius: "10px" }} />
     ),
   },
 );
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+type MsgInteractive =
+  | { type: "cta"; ctaLabel: string; tapped: boolean }
+  | { type: "select"; options: string[]; selectedIndex?: number }
+  | { type: "final"; bullets: string[]; ctaLabel: string; tapped: boolean };
+
 interface Msg {
   id: string;
   role: "ai" | "user";
   text: string;
+  interactive?: MsgInteractive;
+  // true for user bubbles created from tapping a CTA / MCQ option (pretest),
+  // styled distinctly from the level-test's spoken-reply bubbles.
+  isTappedResponse?: boolean;
+  // the native-script sentence being tested, rendered larger (20px) and
+  // separately from the surrounding instructional text.
+  quizSentence?: string;
 }
 
 type Phase = "idle" | "recording" | "transcribing" | "evaluating" | "playing";
+
+type Stage = "pretest" | "test";
 
 interface Props {
   language: "tamil" | "hindi";
@@ -35,11 +50,9 @@ interface Props {
 
 function MicIcon() {
   return (
-    <svg className="w-6 h-6 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-        d="M12 1a4 4 0 0 1 4 4v6a4 4 0 0 1-8 0V5a4 4 0 0 1 4-4z" />
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-        d="M19 10v1a7 7 0 0 1-14 0v-1M12 19v4M8 23h8" />
+    <svg className="w-6 h-6" style={{ color: "#12151E" }} fill="currentColor" viewBox="0 0 24 24">
+      <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
+      <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" />
     </svg>
   );
 }
@@ -132,7 +145,7 @@ function Recorder({ phase, analyser, isRecording, onTapStart, onTapStop, onTapCa
 
   if (phase === "recording") {
     return (
-      <div className="flex items-center gap-3 px-4 py-3 bg-zinc-950">
+      <div className="flex items-center gap-3 px-4 py-3 bg-[#12151E]">
         <button
           onClick={onTapCancel}
           aria-label="Cancel recording"
@@ -155,7 +168,7 @@ function Recorder({ phase, analyser, isRecording, onTapStart, onTapStop, onTapCa
   }
 
   return (
-    <div className="flex flex-col items-center gap-2 pt-4 bg-zinc-950">
+    <div className="flex flex-col items-center gap-2 pt-4 bg-[#12151E]">
       <button
         onClick={phase === "idle" ? onTapStart : undefined}
         disabled={isDisabled}
@@ -232,6 +245,172 @@ function ResultsScreen({
   );
 }
 
+// ─── Fake status bar ──────────────────────────────────────────────────────────
+
+function FakeStatusBar() {
+  return (
+    <div className="shrink-0 relative z-20 flex items-center justify-between px-5 h-[44px] bg-[#12151E] text-white text-[14px] font-medium">
+      <span className="tabular-nums">9:41</span>
+      <div className="flex items-center gap-[6px]">
+        {/* Signal */}
+        <svg viewBox="0 0 18 12" width="17" height="11" fill="currentColor" aria-hidden>
+          <rect x="0" y="8" width="3" height="4" rx="0.6" />
+          <rect x="5" y="6" width="3" height="6" rx="0.6" />
+          <rect x="10" y="3" width="3" height="9" rx="0.6" />
+          <rect x="15" y="0" width="3" height="12" rx="0.6" />
+        </svg>
+        {/* Wifi */}
+        <svg viewBox="0 0 18 12" width="15" height="10" fill="currentColor" aria-hidden>
+          <path d="M9 12L11.6 8.7C11 8.25 10.06 8 9 8s-2 .25-2.6.7L9 12zm5.6-7.06C13.13 3.72 11.16 3 9 3S4.87 3.72 3.4 4.94l1.5 1.87C6 5.87 7.4 5.3 9 5.3s3 .57 4.1 1.51l1.5-1.87zM9 0C5.55 0 2.4 1.2 0 3.15L1.5 5.02C3.46 3.35 6.1 2.3 9 2.3s5.54 1.05 7.5 2.72L18 3.15C15.6 1.2 12.45 0 9 0z" />
+        </svg>
+        {/* Battery */}
+        <svg viewBox="0 0 26 12" width="24" height="11" fill="none" aria-hidden>
+          <rect x="0.5" y="0.5" width="22" height="11" rx="2.5" stroke="currentColor" opacity="0.6" />
+          <rect x="2" y="2" width="19" height="8" rx="1.2" fill="currentColor" />
+          <rect x="23.5" y="4" width="1.5" height="4" rx="0.5" fill="currentColor" opacity="0.6" />
+        </svg>
+      </div>
+    </div>
+  );
+}
+
+// ─── Progress Bar SFX (synthesized — no external audio assets) ────────────────
+// Volume is kept well below TTS/voice level. Tick fires on every fill increase;
+// chime fires exactly once, the moment the bar reaches 100%.
+
+let progressSfxCtx: AudioContext | null = null;
+
+function getProgressSfxCtx(): AudioContext | null {
+  if (typeof window === "undefined") return null;
+  const Ctor = window.AudioContext ?? (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!Ctor) return null;
+  if (!progressSfxCtx || progressSfxCtx.state === "closed") {
+    progressSfxCtx = new Ctor();
+  }
+  return progressSfxCtx;
+}
+
+function playProgressTone(freq: number, durationMs: number, peakGain: number, type: OscillatorType) {
+  const ctx = getProgressSfxCtx();
+  if (!ctx) return;
+  try {
+    if (ctx.state === "suspended") void ctx.resume();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = type;
+    osc.frequency.value = freq;
+    const now = ctx.currentTime;
+    gain.gain.setValueAtTime(0, now);
+    gain.gain.linearRampToValueAtTime(peakGain, now + 0.012);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + durationMs / 1000);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + durationMs / 1000 + 0.02);
+  } catch {
+    // best-effort UI sound — never let it break the flow
+  }
+}
+
+// Short, subtle tick (<200ms), volume well below voice/TTS.
+function playProgressTick() {
+  playProgressTone(720, 90, 0.045, "sine");
+}
+
+// Slightly more satisfying two-note chime — still short, not a fanfare.
+function playProgressChime() {
+  playProgressTone(880, 160, 0.06, "triangle");
+  window.setTimeout(() => playProgressTone(1318.5, 220, 0.055, "triangle"), 90);
+}
+
+// ─── Progress Bar ─────────────────────────────────────────────────────────────
+
+function ProgressBar({ progress }: { progress: number }) {
+  const clamped = Math.max(0, Math.min(1, progress));
+  const pct = clamped * 100;
+
+  const prevPctRef = useRef(pct);
+  const completedRef = useRef(false);
+  const [pulseKey, setPulseKey] = useState(0);
+  const [shimmerKey, setShimmerKey] = useState<number | null>(null);
+
+  useEffect(() => {
+    const prev = prevPctRef.current;
+    if (pct > prev) {
+      setPulseKey((k) => k + 1);
+      if (pct >= 100 && !completedRef.current) {
+        completedRef.current = true;
+        playProgressChime();
+        setShimmerKey((k) => (k ?? 0) + 1);
+      } else if (pct < 100) {
+        playProgressTick();
+      }
+    }
+    prevPctRef.current = pct;
+  }, [pct]);
+
+  return (
+    <div className="flex items-center gap-7 px-[18px] py-2">
+      <style>{`
+        @keyframes progressLeadingGlow {
+          0% { opacity: 0.9; transform: scaleY(1.6); }
+          100% { opacity: 0; transform: scaleY(1); }
+        }
+        @keyframes progressShimmerSweep {
+          0% { transform: translateX(-120%); opacity: 0; }
+          15% { opacity: 0.9; }
+          100% { transform: translateX(220%); opacity: 0; }
+        }
+      `}</style>
+      <button
+        type="button"
+        aria-label="Close"
+        className="shrink-0 w-6 h-6 flex items-center justify-center text-white"
+      >
+        <X size={24} strokeWidth={2.5} />
+      </button>
+      <div className="flex-1 h-[11px] bg-[#333952] rounded-full overflow-hidden relative">
+        <div
+          className="h-full bg-[#3CDB9E] rounded-full transition-[width] duration-[350ms] ease-out relative"
+          style={{ width: `${pct}%` }}
+        >
+          {pct > 5 && (
+            <span
+              className="absolute bg-[#75EABE] h-[3px] rounded-full top-[2.5px] left-1"
+              style={{ right: "4px" }}
+            />
+          )}
+
+          {/* Leading-edge glow pulse — replays on every fill increase */}
+          {pulseKey > 0 && (
+            <span
+              key={pulseKey}
+              className="absolute top-0 bottom-0 w-3 rounded-full"
+              style={{
+                right: 0,
+                background: "radial-gradient(circle, rgba(117,234,190,0.9) 0%, rgba(117,234,190,0) 70%)",
+                animation: "progressLeadingGlow 300ms ease-out forwards",
+              }}
+            />
+          )}
+
+          {/* One-off shimmer sweep across the full bar at 100% */}
+          {shimmerKey !== null && (
+            <span
+              key={shimmerKey}
+              className="absolute inset-y-0 w-1/3"
+              style={{
+                background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.55), transparent)",
+                animation: "progressShimmerSweep 480ms ease-out forwards",
+              }}
+            />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Component ────────────────────────────────────────────────────────────
 
 export default function NovaRiveLevelTest({ language, sentences }: Props) {
@@ -244,6 +423,18 @@ export default function NovaRiveLevelTest({ language, sentences }: Props) {
   const [score, setScore] = useState(0);
   const [results, setResults] = useState<boolean[]>([]);
   const [isDone, setIsDone] = useState(false);
+  const [showResults, setShowResults] = useState(false);
+
+  const [stage, setStage] = useState<Stage>("pretest");
+  const [pretestIndex, setPretestIndex] = useState(0);
+  // Counts only USER-driven pretest turns (CTA taps + MCQ selections) — auto
+  // lines don't move the progress bar, per "progress bar moves on user responses".
+  const [pretestResponseCount, setPretestResponseCount] = useState(0);
+  const pretestLang: PretestRegister = language === "tamil" ? "ta" : "hi";
+  const pretestScriptRef = useRef(buildPretestScript(sentences.length));
+  const pretestResponseTotalRef = useRef(
+    pretestScriptRef.current.filter((l) => l.kind !== "auto").length,
+  );
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -259,7 +450,7 @@ export default function NovaRiveLevelTest({ language, sentences }: Props) {
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages.length, phase]);
+  }, [messages, phase]);
 
   // ── TTS playback ─────────────────────────────────────────────────────────────
 
@@ -373,6 +564,10 @@ export default function NovaRiveLevelTest({ language, sentences }: Props) {
 
     if (nextIndex >= sentences.length) {
       setIsDone(true);
+      // Hold the progress bar at 100% (with its completion flourish) for a beat
+      // before swapping to the results screen — the bar must visibly reach 100%
+      // on this turn, not be skipped straight past.
+      window.setTimeout(() => setShowResults(true), 450);
       return;
     }
 
@@ -382,13 +577,13 @@ export default function NovaRiveLevelTest({ language, sentences }: Props) {
     setAttempts(0);
 
     const next = sentences[nextIndex]!;
-    const promptText = `Next sentence. ${next.sentence} — translate that to English.`;
+    const leadIn = "Next sentence — translate this to English:";
     const msgId = `ai-q-${nextIndex}`;
-    const msg: Msg = { id: msgId, role: "ai", text: promptText };
+    const msg: Msg = { id: msgId, role: "ai", text: leadIn, quizSentence: next.sentence };
     messagesRef.current = [...messagesRef.current, msg];
     setMessages([...messagesRef.current]);
 
-    void playTts(msgId, promptText);
+    void playTts(msgId, `${leadIn} ${next.sentence}`);
   }, [sentences, playTts]);
 
   // ── Evaluate user translation ──────────────────────────────────────────────────
@@ -487,18 +682,147 @@ export default function NovaRiveLevelTest({ language, sentences }: Props) {
     void transcribe();
   }, [audioBlob]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Auto-play first sentence on mount ────────────────────────────────────────
+  // ── Pre-test dialogue (hardcoded script) ─────────────────────────────────────
+
+  const runPretestLine = useCallback((index: number) => {
+    const line = pretestScriptRef.current[index];
+    if (!line) return;
+
+    const text = line.text[pretestLang];
+    const preDelay = line.kind === "auto" ? (line.preDelayMs ?? 0) : 0;
+
+    window.setTimeout(() => {
+      setPhase("evaluating"); // reuse the existing typing-dots bubble
+      window.setTimeout(() => {
+        setPhase("idle");
+        const msgId = `pretest-${line.id}`;
+        const msg: Msg = { id: msgId, role: "ai", text };
+        messagesRef.current = [...messagesRef.current, msg];
+        setMessages([...messagesRef.current]);
+
+        // Only advance / reveal the next interactive step once this line's
+        // narration has actually finished playing — prevents the next line's
+        // TTS call from cutting this one off mid-sentence.
+        const onNarrationEnd = () => {
+          if (line.kind === "auto") {
+            setPretestIndex(index + 1);
+            return;
+          }
+
+          let interactive: MsgInteractive;
+          if (line.kind === "cta") {
+            interactive = { type: "cta", ctaLabel: line.cta[pretestLang], tapped: false };
+          } else if (line.kind === "select") {
+            interactive = { type: "select", options: line.options.map((o) => o[pretestLang]) };
+          } else if (line.kind === "select-plain") {
+            interactive = { type: "select", options: line.options };
+          } else {
+            interactive = {
+              type: "final",
+              bullets: line.bullets.map((b) => b[pretestLang]),
+              ctaLabel: line.cta[pretestLang],
+              tapped: false,
+            };
+          }
+
+          messagesRef.current = messagesRef.current.map((m) =>
+            m.id === msgId ? { ...m, interactive } : m
+          );
+          setMessages([...messagesRef.current]);
+        };
+
+        void playTts(msgId, stripEmojisForTts(text), onNarrationEnd);
+      }, 900);
+    }, preDelay);
+  }, [pretestLang, playTts]);
 
   useEffect(() => {
+    if (stage !== "pretest") return;
+    runPretestLine(pretestIndex);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pretestIndex]);
+
+  // Tapping a CTA or MCQ option locks the original card (button/options hidden,
+  // any informational content like bullets stays) and appends a distinct
+  // "user response" bubble recording exactly what was chosen.
+
+  const pushTappedResponse = useCallback((label: string) => {
+    const userMsg: Msg = {
+      id: `pretest-u-${Date.now()}`,
+      role: "user",
+      text: label,
+      isTappedResponse: true,
+    };
+    messagesRef.current = [...messagesRef.current, userMsg];
+    setMessages([...messagesRef.current]);
+  }, []);
+
+  const handlePretestOptionTap = useCallback((msgId: string, optionIndex: number) => {
+    const target = messagesRef.current.find((m) => m.id === msgId);
+    if (target?.interactive?.type !== "select" || target.interactive.selectedIndex !== undefined) {
+      return;
+    }
+    const label = target.interactive.options[optionIndex] ?? "";
+    messagesRef.current = messagesRef.current.map((m) =>
+      m.id === msgId && m.interactive?.type === "select"
+        ? { ...m, interactive: { ...m.interactive, selectedIndex: optionIndex } }
+        : m
+    );
+    setMessages([...messagesRef.current]);
+    pushTappedResponse(label);
+    setPretestResponseCount((c) => c + 1);
+    setPretestIndex((i) => i + 1);
+  }, [pushTappedResponse]);
+
+  const handlePretestCta = useCallback((msgId: string) => {
+    const target = messagesRef.current.find((m) => m.id === msgId);
+    if (target?.interactive?.type !== "cta" || target.interactive.tapped) {
+      return;
+    }
+    const label = target.interactive.ctaLabel;
+    messagesRef.current = messagesRef.current.map((m) =>
+      m.id === msgId && m.interactive?.type === "cta"
+        ? { ...m, interactive: { ...m.interactive, tapped: true } }
+        : m
+    );
+    setMessages([...messagesRef.current]);
+    pushTappedResponse(label);
+    setPretestResponseCount((c) => c + 1);
+    setPretestIndex((i) => i + 1);
+  }, [pushTappedResponse]);
+
+  const handlePretestFinalCta = useCallback((msgId: string) => {
+    const target = messagesRef.current.find((m) => m.id === msgId);
+    if (target?.interactive?.type !== "final" || target.interactive.tapped) {
+      return;
+    }
+    const label = target.interactive.ctaLabel;
+    messagesRef.current = messagesRef.current.map((m) =>
+      m.id === msgId && m.interactive?.type === "final"
+        ? { ...m, interactive: { ...m.interactive, tapped: true } }
+        : m
+    );
+    setMessages([...messagesRef.current]);
+    pushTappedResponse(label);
+    setPretestResponseCount((c) => c + 1);
+    stopTts();
+    setStage("test");
+  }, [pushTappedResponse, stopTts]);
+
+  // ── Auto-play first level-test sentence once the pre-test script finishes ────
+
+  useEffect(() => {
+    if (stage !== "test") return;
     const first = sentences[0];
     if (!first) return;
-    const introText = `Let's begin. Translate this sentence to English: ${first.sentence}`;
+    const leadIn = "Let's begin. Translate this sentence to English:";
     const msgId = "ai-q-0";
-    const msg: Msg = { id: msgId, role: "ai", text: introText };
-    messagesRef.current = [msg];
-    setMessages([msg]);
-    void playTts(msgId, introText);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    const msg: Msg = { id: msgId, role: "ai", text: leadIn, quizSentence: first.sentence };
+    messagesRef.current = [...messagesRef.current, msg];
+    setMessages([...messagesRef.current]);
+    void playTts(msgId, `${leadIn} ${first.sentence}`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stage]);
 
   // ── Cleanup on unmount ───────────────────────────────────────────────────────
 
@@ -537,7 +861,7 @@ export default function NovaRiveLevelTest({ language, sentences }: Props) {
 
   // ── Done screen ───────────────────────────────────────────────────────────────
 
-  if (isDone) {
+  if (showResults) {
     return (
       <ResultsScreen
         score={score}
@@ -547,71 +871,211 @@ export default function NovaRiveLevelTest({ language, sentences }: Props) {
     );
   }
 
-  const langLabel = language === "tamil" ? "Tamil" : "Hindi";
   const current = sentences[currentIndex];
 
+  // Progress moves on USER RESPONSES only — pretest auto lines (greeting,
+  // assurance, etc.) don't move the bar; only CTA taps / MCQ selections do.
+  // Computed from the actual script (not a hardcoded step count), so it stays
+  // correct as either phase grows. isDone is the explicit override that snaps
+  // progress to exactly 100% on the same turn the results screen is triggered
+  // — never before — and the screen itself only swaps in ~450ms later so that
+  // moment is visible.
+  const totalTurns = pretestResponseTotalRef.current + sentences.length;
+  const completedTurns =
+    stage === "pretest"
+      ? pretestResponseCount
+      : pretestResponseTotalRef.current + currentIndex;
+  const progress = isDone ? 1 : Math.min(completedTurns / totalTurns, 1);
+
   return (
-    <div className="min-h-dvh bg-black">
-      <div className="flex flex-col h-dvh max-w-xl mx-auto">
+    <div className="min-h-dvh flex items-center justify-center" style={{ backgroundColor: "#FFFFFF" }}>
+      <style>{`.nova-canvas-blend canvas { width: 100% !important; height: 100% !important; display: block; }`}</style>
+      <div className="relative flex flex-col w-[360px] h-[800px] mx-auto bg-[#12151E] overflow-hidden">
 
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800 bg-zinc-950 shrink-0">
-          <span className="text-sm font-medium text-zinc-200">{langLabel} Level Test</span>
-          <span className="text-xs text-zinc-500">{currentIndex + 1}/{sentences.length}</span>
+        {/* Fake status bar */}
+        <FakeStatusBar />
+
+        {/* Progress bar */}
+        <div className="shrink-0 relative z-20 bg-[#12151E]">
+          <ProgressBar progress={progress} />
         </div>
 
-        {/* Rive avatar */}
-        <div className="w-full bg-white shrink-0" style={{ height: "35dvh" }}>
-          <SupernovaAvatar
-            isListening={phase === "recording"}
-            isThinking={phase === "transcribing" || phase === "evaluating"}
-            isSpeaking={phase === "playing"}
-            audioRef={audioRef}
-            lipSyncAnalyserRef={lipSyncAnalyserRef}
-            onSpeakEnd={stopTts}
-          />
-        </div>
-
-        {/* Concept label + sentence */}
-        {current && (
-          <div className="shrink-0 px-4 py-3 bg-zinc-900 border-b border-zinc-800">
-            <div className="text-xs text-zinc-500 mb-0.5">{current.concept}</div>
-            <div className="text-lg font-medium text-white">{current.sentence}</div>
-            <div className="text-xs text-zinc-500 mt-1">Translate to English</div>
+        {/* Rive avatar + Chat overlay area */}
+        <div className="relative flex-1 min-h-0">
+          {/* Rive avatar floats on top */}
+          <div
+            className="absolute top-0 left-1/2 z-10 pointer-events-none overflow-hidden"
+            style={{
+              width: "326px",
+              height: "240px",
+              margin: 0,
+              padding: 0,
+              transform: "translateX(-50%)",
+              backgroundColor: "#1A1E2D",
+              backgroundImage: "url('/classroom-bg.jpg')",
+              backgroundSize: "100% 100%",
+              backgroundPosition: "center",
+              backgroundRepeat: "no-repeat",
+              borderRadius: "10px",
+            }}
+          >
+            <div
+              className="pointer-events-none w-full h-full nova-canvas-blend"
+              style={{ transform: "scale(1.2)", transformOrigin: "center center" }}
+            >
+              <SupernovaAvatar
+                isListening={phase === "recording"}
+                isThinking={phase === "transcribing" || phase === "evaluating"}
+                isSpeaking={phase === "playing"}
+                audioRef={audioRef}
+                lipSyncAnalyserRef={lipSyncAnalyserRef}
+                onSpeakEnd={stopTts}
+              />
+            </div>
           </div>
-        )}
 
-        {/* Chat thread */}
-        <div className="flex-1 overflow-y-auto overscroll-y-none min-h-0 px-4 py-4 space-y-3">
+          {/* Fade-out div directly below the Nova container — blends it into the chat */}
+          <div
+            className="absolute left-0 z-10 pointer-events-none"
+            style={{
+              top: "240px",
+              width: "360px",
+              height: "60px",
+              background: "linear-gradient(to bottom, #12151E 0%, rgba(18,21,30,0) 100%)",
+            }}
+          />
+
+          {/* Chat thread scrolls under Nova */}
+          <div
+            className="absolute inset-0 overflow-y-auto overscroll-y-none px-4 space-y-3"
+            style={{ paddingTop: "256px", paddingBottom: "16px" }}
+          >
           {messages.map((msg) => {
             const isUser = msg.role === "user";
             const isThisPlaying = playingMsgId === msg.id;
+            const interactive = msg.interactive;
 
+            // AI message with a CTA (or the final line's bullets + CTA): the CTA is
+            // the last element INSIDE the same rounded card as the text, separated
+            // by a hairline divider — never a separate floating button. Once
+            // tapped, the button itself is removed (the tap is now recorded by a
+            // separate user-response bubble below); bullets/text stay visible.
+            if (!isUser && (interactive?.type === "cta" || interactive?.type === "final")) {
+              return (
+                <div key={msg.id} className="flex justify-start">
+                  <div className="max-w-[80%] w-full min-w-[240px] rounded-2xl rounded-bl-sm bg-[#1A1E2D] overflow-hidden">
+                    <div className="px-4 py-2.5 text-sm leading-relaxed whitespace-pre-line text-zinc-100">
+                      {msg.text}
+                    </div>
+
+                    {interactive.type === "final" && (
+                      <div className="px-4 pb-3 flex flex-col gap-1.5">
+                        {interactive.bullets.map((b, i) => (
+                          <div key={i} className="flex items-start gap-2 text-sm text-zinc-200">
+                            <span className="text-green-400 mt-0.5">✓</span>
+                            <span>{b}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {!interactive.tapped && (
+                      <button
+                        onClick={() =>
+                          interactive.type === "final"
+                            ? handlePretestFinalCta(msg.id)
+                            : handlePretestCta(msg.id)
+                        }
+                        className="w-full text-center text-[15px] font-semibold transition-colors"
+                        style={{
+                          borderTop: "1px solid #2B3044",
+                          color: "#40b9f8",
+                          paddingTop: "15px",
+                          paddingBottom: "15px",
+                        }}
+                      >
+                        {interactive.ctaLabel}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            }
+
+            // AI message with select options: question text and its option
+            // cards live inside ONE shared card. Once an option is tapped, the
+            // options list is removed (the tap is now recorded by a separate
+            // user-response bubble below).
+            if (!isUser && interactive?.type === "select") {
+              const answered = interactive.selectedIndex !== undefined;
+              return (
+                <div key={msg.id} className="flex justify-start">
+                  <div className={`max-w-[80%] w-full min-w-[240px] rounded-2xl rounded-bl-sm bg-[#1A1E2D] px-4 pt-2.5 ${answered ? "pb-2.5" : "pb-4"}`}>
+                    <div className={`text-sm leading-relaxed whitespace-pre-line text-zinc-100 ${answered ? "" : "mb-3"}`}>
+                      {msg.text}
+                    </div>
+                    {!answered && (
+                      <div className="flex flex-col gap-2">
+                        {interactive.options.map((opt, i) => (
+                          <button
+                            key={i}
+                            onClick={() => handlePretestOptionTap(msg.id, i)}
+                            className="w-full text-center text-sm text-zinc-100 transition-colors"
+                            style={{
+                              backgroundColor: "#161a27",
+                              border: "1.5px solid #2B3044",
+                              borderRadius: "12px",
+                              padding: "8px",
+                            }}
+                          >
+                            {opt}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            }
+
+            // Default: plain bubble (user replies, and ai text with no interactive)
             return (
               <div key={msg.id} className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
-                <div className={`flex flex-col gap-1 max-w-[80%] ${isUser ? "items-end" : "items-start"}`}>
+                <div className={`flex flex-col gap-2 max-w-[80%] ${isUser ? "items-end" : "items-start"}`}>
                   <div
                     className={`rounded-2xl px-4 py-2.5 text-sm leading-relaxed whitespace-pre-line ${
-                      isUser
-                        ? "bg-green-500 text-black rounded-br-sm"
-                        : "bg-zinc-800 border border-zinc-700 text-zinc-100 rounded-bl-sm"
+                      isUser ? "rounded-br-sm" : "rounded-bl-sm"
                     }`}
+                    style={{
+                      backgroundColor: "#1A1E2D",
+                      color: isUser ? "#8C94AE" : "#f4f4f5",
+                    }}
                   >
-                    {msg.text}
+                    <span style={msg.quizSentence ? { color: "#12151E" } : undefined}>
+                      {msg.text}
+                    </span>
+                    {msg.quizSentence && (
+                      <div
+                        className="mt-2 font-medium"
+                        style={{ fontSize: "20px", lineHeight: 1.4 }}
+                      >
+                        {msg.quizSentence}
+                      </div>
+                    )}
                   </div>
 
                   {!isUser && (
                     isThisPlaying ? (
                       <button
                         onClick={stopTts}
-                        className="flex items-center gap-1.5 text-xs text-red-400 hover:text-red-300 transition-colors"
+                        className="flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
                       >
                         <Square size={13} className="fill-current" />
                         Stop
                       </button>
                     ) : (
                       <button
-                        onClick={() => void playTts(msg.id, msg.text)}
+                        onClick={() => void playTts(msg.id, stripEmojisForTts(msg.text))}
                         disabled={phase === "playing"}
                         className="flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                       >
@@ -627,7 +1091,7 @@ export default function NovaRiveLevelTest({ language, sentences }: Props) {
 
           {(phase === "evaluating") && (
             <div className="flex justify-start">
-              <div className="rounded-2xl rounded-bl-sm bg-zinc-800 border border-zinc-700 px-4 py-2.5">
+              <div className="rounded-2xl rounded-bl-sm bg-[#1A1E2D] px-4 py-2.5">
                 <TypingDots />
               </div>
             </div>
@@ -635,51 +1099,55 @@ export default function NovaRiveLevelTest({ language, sentences }: Props) {
 
           <div ref={bottomRef} />
         </div>
-
-        {/* Bottom bar */}
-        <div
-          className="shrink-0 bg-zinc-950 pb-4"
-          style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px), 16px)" }}
-        >
-          {phase === "recording" ? (
-            <Recorder
-              phase={phase}
-              analyser={isRecording ? analyser : null}
-              isRecording={isRecording}
-              onTapStart={handleTapStart}
-              onTapStop={handleTapStop}
-              onTapCancel={handleTapCancel}
-            />
-          ) : (
-            <div className="flex items-center justify-center relative py-3">
-              <div className="flex flex-col items-center gap-1">
-                <button
-                  onClick={phase === "idle" ? handleTapStart : undefined}
-                  disabled={phase !== "idle"}
-                  aria-label="Start recording"
-                  className={`w-12 h-12 rounded-full flex items-center justify-center transition-all duration-200 ${
-                    phase !== "idle"
-                      ? "bg-green-500 opacity-40 cursor-not-allowed"
-                      : "bg-green-500 hover:bg-green-400 cursor-pointer active:scale-95"
-                  }`}
-                >
-                  {phase === "transcribing" || phase === "evaluating" ? (
-                    <span className="w-5 h-5 border-2 border-black border-t-transparent rounded-full animate-spin" />
-                  ) : (
-                    <MicIcon />
-                  )}
-                </button>
-                <p className="text-xs text-zinc-400">
-                  {phase === "transcribing" || phase === "evaluating"
-                    ? "Processing…"
-                    : phase === "playing"
-                    ? "AI speaking…"
-                    : "Tap to speak"}
-                </p>
-              </div>
-            </div>
-          )}
         </div>
+
+        {/* Bottom bar — tap-to-speak only appears once the level test begins */}
+        {stage === "test" && (
+          <div
+            className="shrink-0 bg-[#12151E] pb-4 relative z-20"
+            style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px), 16px)" }}
+          >
+            {phase === "recording" ? (
+              <Recorder
+                phase={phase}
+                analyser={isRecording ? analyser : null}
+                isRecording={isRecording}
+                onTapStart={handleTapStart}
+                onTapStop={handleTapStop}
+                onTapCancel={handleTapCancel}
+              />
+            ) : (
+              <div className="flex items-center justify-center relative py-3">
+                <div className="flex flex-col items-center gap-1">
+                  <button
+                    onClick={phase === "idle" ? handleTapStart : undefined}
+                    disabled={phase !== "idle"}
+                    aria-label="Start recording"
+                    className={`w-12 h-12 rounded-full flex items-center justify-center transition-all duration-200 ${
+                      phase !== "idle"
+                        ? "opacity-40 cursor-not-allowed"
+                        : "cursor-pointer active:scale-95 hover:brightness-95"
+                    }`}
+                    style={{ backgroundColor: "#75EABE" }}
+                  >
+                    {phase === "transcribing" || phase === "evaluating" ? (
+                      <span className="w-5 h-5 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <MicIcon />
+                    )}
+                  </button>
+                  <p className="text-xs text-zinc-400">
+                    {phase === "transcribing" || phase === "evaluating"
+                      ? "Processing…"
+                      : phase === "playing"
+                      ? "AI speaking…"
+                      : "Tap to speak"}
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

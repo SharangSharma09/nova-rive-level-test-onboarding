@@ -1,0 +1,11 @@
+allowBuilds:
+  esbuild: set this to true or false
+  ffmpeg-static: set this to true or false
+  sharp: set this to true or false
+  unrs-resolver: set this to true or false
+onlyBuiltDependencies:
+  - esbuild
+  - ffmpeg-static
+  - ffprobe-static
+  - sharp
+  - unrs-resolver

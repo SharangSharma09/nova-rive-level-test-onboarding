@@ -49,7 +49,7 @@ export default function SupernovaAvatar({
   );
 
   const { rive, RiveComponent } = useRive({
-    src: "/supernova.riv",
+    src: "/supernova.riv?v=2",
     artboard: ARTBOARD,
     stateMachines: STATE_MACHINE,
     layout,
@@ -202,7 +202,7 @@ export default function SupernovaAvatar({
   }, [stopLipSync, onSpeakEnd]);
 
   return (
-    <div className="relative h-full w-full overflow-hidden bg-white">
+    <div className="relative h-full w-full overflow-hidden">
       <RiveComponent className="h-full w-full" />
     </div>
   );
