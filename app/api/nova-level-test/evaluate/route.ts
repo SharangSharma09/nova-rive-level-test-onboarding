@@ -18,7 +18,10 @@ export async function POST(request: Request) {
     return Response.json({ error: "Missing fields" }, { status: 400 });
   }
 
-  const prompt = `You are an English language teacher evaluating a student's translation exercise.
+  // The level test asks questions one after another with no feedback shown or
+  // spoken to the user — this endpoint only scores correctness silently for
+  // the results screen, so the prompt asks for nothing beyond that.
+  const prompt = `You are evaluating a student's translation exercise for scoring purposes only. This score is not shown to the student.
 
 The student was shown this sentence in ${language}:
 "${sentence}"
@@ -30,9 +33,7 @@ The student said: "${userTranslation}"
 Evaluate if the student's translation conveys the same meaning as the expected translation. Minor grammar imperfections are acceptable as long as the meaning is correct.
 
 Reply ONLY with valid JSON in this exact format (no markdown, no extra text):
-{"correct":true,"feedback":"Great job! That's exactly right.","hint":"Try focusing on the verb tense."}
-
-If correct is true, write an encouraging feedback message. If correct is false, write a gentle hint that helps them without giving away the answer. Keep feedback and hint under 20 words each.`;
+{"correct":true}`;
 
   try {
     const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
@@ -41,14 +42,10 @@ If correct is true, write an encouraging feedback message. If correct is false, 
     console.log("[level-test/evaluate] Gemini raw:", raw.slice(0, 200));
 
     const cleaned = raw.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
-    const parsed = JSON.parse(cleaned) as { correct: boolean; feedback: string; hint: string };
+    const parsed = JSON.parse(cleaned) as { correct: boolean };
     return Response.json(parsed);
   } catch (e) {
     console.error("[level-test/evaluate] ✗ Gemini error or JSON parse failed", e);
-    return Response.json({
-      correct: false,
-      feedback: "Hmm, not quite. Give it another try.",
-      hint: "Think about the time when the action happens.",
-    });
+    return Response.json({ correct: false });
   }
 }

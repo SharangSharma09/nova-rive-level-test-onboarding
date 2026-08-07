@@ -1,6 +1,6 @@
 import { HINDI_SENTENCES } from "@/lib/level-test-content";
-import NovaRiveLevelTest from "@/components/NovaRiveLevelTest";
+import RiveVariantHarness from "@/components/RiveVariantHarness";
 
 export default function Page() {
-  return <NovaRiveLevelTest language="hindi" sentences={HINDI_SENTENCES} />;
+  return <RiveVariantHarness language="hindi" sentences={HINDI_SENTENCES} />;
 }

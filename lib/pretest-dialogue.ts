@@ -79,7 +79,7 @@ export function buildPretestScript(sentenceCount: number): PretestLine[] {
         hi: "✨ Chaliye main aapka course plan personalise karungi — iske liye kuch sawaal poochungi aur ek chhota English level test loongi. Shuru karein?",
         ta: "✨ Ungaloda course plan-a naan personalise pannuren — konjam questions kekkuven, oru chinna English level test edukkuven, appo dhaan unga kaaga customised plan banikka mudiyum. Aarambikalama?",
       },
-      cta: { hi: "Let's start", ta: "Let's start" },
+      cta: { hi: "Yes, personalise my English course", ta: "Yes, personalise my English course" },
     },
     // Line 3 — Q1: Speaking
     {
@@ -107,7 +107,7 @@ export function buildPretestScript(sentenceCount: number): PretestLine[] {
       id: "q2-grammar",
       kind: "select",
       text: {
-        hi: "✍️ Doosra sawaal — English mein sentence banane mein aapko kitna comfortable hai?",
+        hi: "✍️ Doosra sawaal — English mein sentence banane mein aap kitne comfortable hai?",
         // TODO TA: needs updated Tanglish to match the new HI phrasing ("Doosra sawaal —" prefix).
         ta: "✍️ English la sentences pannradhula neenga evlo comfortable?",
       },
@@ -152,7 +152,7 @@ export function buildPretestScript(sentenceCount: number): PretestLine[] {
       id: "time-reaction",
       kind: "auto",
       text: {
-        hi: "📈 Jitna zyada time denge, utna aapki English behtar hogi.",
+        hi: "📈 Aap jitna zyada time denge, utna aapki English behtar hogi.",
         // TODO TA: brand-new line, no prior Tanglish translation exists yet.
         ta: "📈 [TODO TA] Jitna zyada time denge, utna aapki English behtar hogi.",
       },
@@ -163,7 +163,7 @@ export function buildPretestScript(sentenceCount: number): PretestLine[] {
       id: "know-your-level",
       kind: "final",
       text: {
-        hi: `🎯 Chaliye, ab main aapka English level pata karti hoon. Iske liye aapse ${sentenceCount} chhote sawaal poochungi, taaki aapke liye sahi 30-day plan bana sakoon.`,
+        hi: `🎯 Chaliye, ab main aapka English level pata karoongi. Iske liye aapse mai ${sentenceCount} chhote sawaal poochoongi, taaki aapke liye sahi 30-day plan bana sakoon.`,
         // TODO TA: HI wording changed again — needs updated Tanglish.
         ta: `🎯 [TODO TA] Chaliye, ab main aapka English level pata karti hoon. Iske liye aapse ${sentenceCount} chinna questions kekkuven, appo dhaan unga kaaga sariyaana 30-day plan-a banikka mudiyum.`,
       },

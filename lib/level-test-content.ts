@@ -35,11 +35,6 @@ export const TAMIL_SENTENCES: LevelSentence[] = [
     sentence: "குழந்தை மெதுவாக நடக்கிறது.",
     expectedTranslation: "The child walks slowly.",
   },
-  {
-    concept: "Time & Place",
-    sentence: "புத்தகம் மேஜையின் கீழே உள்ளது.",
-    expectedTranslation: "The book is under the table.",
-  },
 ];
 
 export const HINDI_SENTENCES: LevelSentence[] = [
@@ -72,10 +67,5 @@ export const HINDI_SENTENCES: LevelSentence[] = [
     concept: "Adverbs",
     sentence: "बच्चा धीरे-धीरे चलता है।",
     expectedTranslation: "The child walks slowly.",
-  },
-  {
-    concept: "Time & Place",
-    sentence: "किताब मेज़ के नीचे है।",
-    expectedTranslation: "The book is under the table.",
   },
 ];

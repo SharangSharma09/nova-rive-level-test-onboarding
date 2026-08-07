@@ -3,9 +3,12 @@
 import { useEffect, useLayoutEffect, useRef, useState, useCallback } from "react";
 import dynamic from "next/dynamic";
 import { Volume2, Square, X } from "lucide-react";
+import type { Rive } from "@rive-app/react-canvas";
 import { LevelSentence } from "@/lib/level-test-content";
 import { useMicRecorder } from "@/lib/voice/use-mic-recorder";
 import { buildPretestScript, stripEmojisForTts, type PretestRegister } from "@/lib/pretest-dialogue";
+
+export type AvatarVariant = "nova" | "realistic-female";
 
 const SupernovaAvatar = dynamic(
   () => import("@/components/SupernovaAvatar"),
@@ -16,6 +19,32 @@ const SupernovaAvatar = dynamic(
     ),
   },
 );
+
+const RealisticFemaleAvatar = dynamic(
+  () => import("@/components/RealisticFemaleAvatar"),
+  {
+    ssr: false,
+    loading: () => (
+      <div style={{ width: "320px", height: "240px", backgroundColor: "#000000", borderRadius: "10px" }} />
+    ),
+  },
+);
+
+// Splits narration text around a phrase that must always be recited in
+// English (Cartesia's language auto-detect can otherwise apply Hindi/Tamil
+// pronunciation to English phrases embedded in a Hinglish/Tanglish string).
+// Each returned segment is played as its own TTS call so the phrase's
+// pronunciation is never influenced by the surrounding native-script text.
+function splitForcedEnglishSegments(text: string, phrase: string): string[] {
+  if (!text.includes(phrase)) return [text];
+  const parts = text.split(phrase);
+  const segments: string[] = [];
+  parts.forEach((part, i) => {
+    if (part.length > 0) segments.push(part);
+    if (i < parts.length - 1) segments.push(phrase);
+  });
+  return segments;
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -44,6 +73,8 @@ type Stage = "pretest" | "test";
 interface Props {
   language: "tamil" | "hindi";
   sentences: LevelSentence[];
+  avatarVariant?: AvatarVariant;
+  onAvatarRiveInstance?: (rive: Rive | null) => void;
 }
 
 // ─── Icons ────────────────────────────────────────────────────────────────────
@@ -186,7 +217,7 @@ function Recorder({ phase, analyser, isRecording, onTapStart, onTapStop, onTapCa
         )}
       </button>
       <p className="text-xs text-zinc-500">
-        {isProcessing ? "Processing…" : isPlaying ? "AI speaking…" : "Tap to speak"}
+        {isProcessing ? "Processing…" : isPlaying ? "AI speaking…" : "Tap to answer"}
       </p>
     </div>
   );
@@ -325,7 +356,29 @@ function playProgressChime() {
 
 // ─── Progress Bar ─────────────────────────────────────────────────────────────
 
-function ProgressBar({ progress }: { progress: number }) {
+const SPARKLE_POSITIONS = [
+  { left: "6%", top: "-11px" },
+  { left: "26%", top: "15px" },
+  { left: "50%", top: "-13px" },
+  { left: "74%", top: "15px" },
+  { left: "94%", top: "-10px" },
+];
+
+function SparkleIcon({ size = 11, color = "#75EABE" }: { size?: number; color?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
+      <path d="M12 0c0 6 2 10 6 12-4 2-6 6-6 12 0-6-2-10-6-12 4-2 6-6 6-12Z" />
+    </svg>
+  );
+}
+
+function ProgressBar({
+  progress,
+  sparkleTrigger,
+}: {
+  progress: number;
+  sparkleTrigger?: number;
+}) {
   const clamped = Math.max(0, Math.min(1, progress));
   const pct = clamped * 100;
 
@@ -333,6 +386,9 @@ function ProgressBar({ progress }: { progress: number }) {
   const completedRef = useRef(false);
   const [pulseKey, setPulseKey] = useState(0);
   const [shimmerKey, setShimmerKey] = useState<number | null>(null);
+
+  const prevSparkleTriggerRef = useRef(sparkleTrigger ?? 0);
+  const [sparkleKey, setSparkleKey] = useState<number | null>(null);
 
   useEffect(() => {
     const prev = prevPctRef.current;
@@ -349,6 +405,15 @@ function ProgressBar({ progress }: { progress: number }) {
     prevPctRef.current = pct;
   }, [pct]);
 
+  useEffect(() => {
+    const prev = prevSparkleTriggerRef.current;
+    const next = sparkleTrigger ?? 0;
+    if (next > prev) {
+      setSparkleKey((k) => (k ?? 0) + 1);
+    }
+    prevSparkleTriggerRef.current = next;
+  }, [sparkleTrigger]);
+
   return (
     <div className="flex items-center gap-7 px-[18px] py-2">
       <style>{`
@@ -361,51 +426,77 @@ function ProgressBar({ progress }: { progress: number }) {
           15% { opacity: 0.9; }
           100% { transform: translateX(220%); opacity: 0; }
         }
+        @keyframes progressSparkleTwinkle {
+          0% { opacity: 0; transform: scale(0.3) rotate(0deg); }
+          40% { opacity: 1; transform: scale(1.15) rotate(15deg); }
+          100% { opacity: 0; transform: scale(0.6) rotate(30deg); }
+        }
       `}</style>
       <button
         type="button"
         aria-label="Close"
-        className="shrink-0 w-6 h-6 flex items-center justify-center text-white"
+        className="shrink-0 w-6 h-6 flex items-center justify-center"
+        style={{ color: "#8C94AE" }}
       >
         <X size={24} strokeWidth={2.5} />
       </button>
-      <div className="flex-1 h-[11px] bg-[#333952] rounded-full overflow-hidden relative">
-        <div
-          className="h-full bg-[#3CDB9E] rounded-full transition-[width] duration-[350ms] ease-out relative"
-          style={{ width: `${pct}%` }}
-        >
-          {pct > 5 && (
-            <span
-              className="absolute bg-[#75EABE] h-[3px] rounded-full top-[2.5px] left-1"
-              style={{ right: "4px" }}
-            />
-          )}
+      <div className="flex-1 relative">
+        <div className="h-[11px] bg-[#333952] rounded-full overflow-hidden relative">
+          <div
+            className="h-full bg-[#3CDB9E] rounded-full transition-[width] duration-[350ms] ease-out relative"
+            style={{ width: `${pct}%` }}
+          >
+            {pct > 5 && (
+              <span
+                className="absolute bg-[#75EABE] h-[3px] rounded-full top-[2.5px] left-1"
+                style={{ right: "4px" }}
+              />
+            )}
 
-          {/* Leading-edge glow pulse — replays on every fill increase */}
-          {pulseKey > 0 && (
-            <span
-              key={pulseKey}
-              className="absolute top-0 bottom-0 w-3 rounded-full"
-              style={{
-                right: 0,
-                background: "radial-gradient(circle, rgba(117,234,190,0.9) 0%, rgba(117,234,190,0) 70%)",
-                animation: "progressLeadingGlow 300ms ease-out forwards",
-              }}
-            />
-          )}
+            {/* Leading-edge glow pulse — replays on every fill increase */}
+            {pulseKey > 0 && (
+              <span
+                key={pulseKey}
+                className="absolute top-0 bottom-0 w-3 rounded-full"
+                style={{
+                  right: 0,
+                  background: "radial-gradient(circle, rgba(117,234,190,0.9) 0%, rgba(117,234,190,0) 70%)",
+                  animation: "progressLeadingGlow 300ms ease-out forwards",
+                }}
+              />
+            )}
 
-          {/* One-off shimmer sweep across the full bar at 100% */}
-          {shimmerKey !== null && (
-            <span
-              key={shimmerKey}
-              className="absolute inset-y-0 w-1/3"
-              style={{
-                background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.55), transparent)",
-                animation: "progressShimmerSweep 480ms ease-out forwards",
-              }}
-            />
-          )}
+            {/* One-off shimmer sweep across the full bar at 100% */}
+            {shimmerKey !== null && (
+              <span
+                key={shimmerKey}
+                className="absolute inset-y-0 w-1/3"
+                style={{
+                  background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.55), transparent)",
+                  animation: "progressShimmerSweep 480ms ease-out forwards",
+                }}
+              />
+            )}
+          </div>
         </div>
+
+        {/* Sparkle burst around the bar — plays once per level-test reply */}
+        {sparkleKey !== null && (
+          <div key={sparkleKey} className="pointer-events-none absolute inset-0">
+            {SPARKLE_POSITIONS.map((pos, i) => (
+              <span
+                key={i}
+                className="absolute"
+                style={{
+                  ...pos,
+                  animation: `progressSparkleTwinkle 700ms ease-out ${i * 60}ms forwards`,
+                }}
+              >
+                <SparkleIcon />
+              </span>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -413,13 +504,17 @@ function ProgressBar({ progress }: { progress: number }) {
 
 // ─── Main Component ────────────────────────────────────────────────────────────
 
-export default function NovaRiveLevelTest({ language, sentences }: Props) {
+export default function NovaRiveLevelTest({
+  language,
+  sentences,
+  avatarVariant = "nova",
+  onAvatarRiveInstance,
+}: Props) {
   const [messages, setMessages] = useState<Msg[]>([]);
   const messagesRef = useRef<Msg[]>([]);
   const [phase, setPhase] = useState<Phase>("idle");
   const [playingMsgId, setPlayingMsgId] = useState<string | null>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [attempts, setAttempts] = useState(0);
   const [score, setScore] = useState(0);
   const [results, setResults] = useState<boolean[]>([]);
   const [isDone, setIsDone] = useState(false);
@@ -435,6 +530,9 @@ export default function NovaRiveLevelTest({ language, sentences }: Props) {
   const pretestResponseTotalRef = useRef(
     pretestScriptRef.current.filter((l) => l.kind !== "auto").length,
   );
+  // Bumped once per spoken reply during the level test — triggers a one-off
+  // sparkle burst around the progress bar.
+  const [levelTestReplySparkle, setLevelTestReplySparkle] = useState(0);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -443,7 +541,6 @@ export default function NovaRiveLevelTest({ language, sentences }: Props) {
   const lipSyncAnalyserRef = useRef<AnalyserNode | null>(null);
   const cancelledRef = useRef(false);
   const currentIndexRef = useRef(0);
-  const attemptsRef = useRef(0);
   const scoreRef = useRef(0);
 
   const { start: startMic, stop: stopMic, blob: audioBlob, isRecording, analyser, resetBlob } = useMicRecorder();
@@ -572,27 +669,51 @@ export default function NovaRiveLevelTest({ language, sentences }: Props) {
     }
 
     currentIndexRef.current = nextIndex;
-    attemptsRef.current = 0;
     setCurrentIndex(nextIndex);
-    setAttempts(0);
 
     const next = sentences[nextIndex]!;
-    const leadIn = "Next sentence — translate this to English:";
+    // Display keeps the "1/6" shorthand; TTS gets "1 of 6" — Cartesia reads
+    // "1/6" as a date ("1 July") otherwise.
+    const displayLeadIn = `Question ${nextIndex + 1}/${sentences.length}: translate this to English.`;
+    const spokenLeadIn = `Question ${nextIndex + 1} of ${sentences.length}. Translate this to English.`;
     const msgId = `ai-q-${nextIndex}`;
-    const msg: Msg = { id: msgId, role: "ai", text: leadIn, quizSentence: next.sentence };
-    messagesRef.current = [...messagesRef.current, msg];
-    setMessages([...messagesRef.current]);
+    const msg: Msg = { id: msgId, role: "ai", text: displayLeadIn, quizSentence: next.sentence };
 
-    void playTts(msgId, `${leadIn} ${next.sentence}`);
+    const showNextQuestion = () => {
+      messagesRef.current = [...messagesRef.current, msg];
+      setMessages([...messagesRef.current]);
+      // Spoken as two separate TTS calls — "Question N of Total" must always
+      // be recited in English, but Cartesia's language auto-detect can bleed
+      // Hindi/Tamil pronunciation onto it if it shares one utterance with the
+      // native-script sentence that follows.
+      void playTts(msgId, spokenLeadIn, () => {
+        void playTts(msgId, next.sentence);
+      });
+    };
+
+    // One-time milestone nudge after the 3rd question is answered (halfway
+    // through a 6-question test) — spoken/shown before the next question.
+    if (nextIndex === 3) {
+      const encourageId = `ai-encourage-${nextIndex}`;
+      const encourageText = "Aap bahut achha kar rahe ho! Abhi 3 aur sawaal baaki hain.";
+      const encourageMsg: Msg = { id: encourageId, role: "ai", text: encourageText };
+      messagesRef.current = [...messagesRef.current, encourageMsg];
+      setMessages([...messagesRef.current]);
+      void playTts(encourageId, encourageText, showNextQuestion);
+    } else {
+      showNextQuestion();
+    }
   }, [sentences, playTts]);
 
   // ── Evaluate user translation ──────────────────────────────────────────────────
+  // Nova asks questions one after another with no feedback in between — the
+  // evaluation result is only used silently for scoring (ResultsScreen), never
+  // shown or spoken. Always advances straight to the next question.
 
   const evaluateTranslation = useCallback(async (userText: string) => {
     setPhase("evaluating");
     const current = sentences[currentIndexRef.current]!;
 
-    console.log("[evaluate] calling /api/nova-level-test/evaluate");
     try {
       const res = await fetch("/api/nova-level-test/evaluate", {
         method: "POST",
@@ -604,41 +725,15 @@ export default function NovaRiveLevelTest({ language, sentences }: Props) {
           expectedTranslation: current.expectedTranslation,
         }),
       });
-      const data = (await res.json()) as { correct: boolean; feedback: string; hint: string };
-      console.log("[evaluate] result:", data);
-
-      const feedbackId = `ai-fb-${Date.now()}`;
-
-      if (data.correct) {
-        const feedbackMsg: Msg = { id: feedbackId, role: "ai", text: data.feedback };
-        messagesRef.current = [...messagesRef.current, feedbackMsg];
-        setMessages([...messagesRef.current]);
-        void playTts(feedbackId, data.feedback, () => advanceSentence(true));
-      } else {
-        const thisAttempt = attemptsRef.current;
-        if (thisAttempt < 1) {
-          // Give hint, allow retry
-          attemptsRef.current += 1;
-          setAttempts(attemptsRef.current);
-          const hintText = data.hint || "Try again!";
-          const hintMsg: Msg = { id: feedbackId, role: "ai", text: hintText };
-          messagesRef.current = [...messagesRef.current, hintMsg];
-          setMessages([...messagesRef.current]);
-          void playTts(feedbackId, hintText);
-        } else {
-          // Show correct answer and move on
-          const answerText = `The correct translation is: ${current.expectedTranslation}`;
-          const answerMsg: Msg = { id: feedbackId, role: "ai", text: answerText };
-          messagesRef.current = [...messagesRef.current, answerMsg];
-          setMessages([...messagesRef.current]);
-          void playTts(feedbackId, answerText, () => advanceSentence(false));
-        }
-      }
+      const data = (await res.json()) as { correct: boolean };
+      advanceSentence(data.correct);
     } catch (err) {
       console.error("[evaluate] failed", err);
-      setPhase("idle");
+      // Don't get stuck on a broken API call — advance anyway (counted as
+      // incorrect for scoring purposes).
+      advanceSentence(false);
     }
-  }, [sentences, language, playTts, advanceSentence]);
+  }, [sentences, language, advanceSentence]);
 
   // ── Transcribe blob when recording stops ──────────────────────────────────────
 
@@ -666,6 +761,7 @@ export default function NovaRiveLevelTest({ language, sentences }: Props) {
           const userMsg: Msg = { id: `u-${Date.now()}`, role: "user", text: data.text };
           messagesRef.current = [...messagesRef.current, userMsg];
           setMessages([...messagesRef.current]);
+          setLevelTestReplySparkle((n) => n + 1);
           void evaluateTranslation(data.text);
         } else {
           const errMsg: Msg = { id: `err-${Date.now()}`, role: "ai", text: "Couldn't catch that — tap the mic and try again." };
@@ -731,7 +827,12 @@ export default function NovaRiveLevelTest({ language, sentences }: Props) {
           setMessages([...messagesRef.current]);
         };
 
-        void playTts(msgId, stripEmojisForTts(text), onNarrationEnd);
+        const segments = splitForcedEnglishSegments(stripEmojisForTts(text), "30-day plan");
+        const playSegment = (i: number) => {
+          if (i >= segments.length) { onNarrationEnd(); return; }
+          void playTts(msgId, segments[i]!, () => playSegment(i + 1));
+        };
+        playSegment(0);
       }, 900);
     }, preDelay);
   }, [pretestLang, playTts]);
@@ -815,12 +916,17 @@ export default function NovaRiveLevelTest({ language, sentences }: Props) {
     if (stage !== "test") return;
     const first = sentences[0];
     if (!first) return;
-    const leadIn = "Let's begin. Translate this sentence to English:";
+    const displayLeadIn = `Let's begin. Question 1/${sentences.length}: translate this to English.`;
+    const spokenLeadIn = `Let's begin. Question 1 of ${sentences.length}. Translate this to English.`;
     const msgId = "ai-q-0";
-    const msg: Msg = { id: msgId, role: "ai", text: leadIn, quizSentence: first.sentence };
+    const msg: Msg = { id: msgId, role: "ai", text: displayLeadIn, quizSentence: first.sentence };
     messagesRef.current = [...messagesRef.current, msg];
     setMessages([...messagesRef.current]);
-    void playTts(msgId, `${leadIn} ${first.sentence}`);
+    // Two separate TTS calls — see note in advanceSentence: keeps "Question 1
+    // of N" as clean English speech, unaffected by the native-script sentence.
+    void playTts(msgId, spokenLeadIn, () => {
+      void playTts(msgId, first.sentence);
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stage]);
 
@@ -880,11 +986,15 @@ export default function NovaRiveLevelTest({ language, sentences }: Props) {
   // progress to exactly 100% on the same turn the results screen is triggered
   // — never before — and the screen itself only swaps in ~450ms later so that
   // moment is visible.
-  const totalTurns = pretestResponseTotalRef.current + sentences.length;
+  // An extra "started" step is counted as complete from the very first render
+  // so the bar always shows a sliver of fill instead of sitting empty.
+  const START_STEP = 1;
+  const totalTurns = START_STEP + pretestResponseTotalRef.current + sentences.length;
   const completedTurns =
-    stage === "pretest"
+    START_STEP +
+    (stage === "pretest"
       ? pretestResponseCount
-      : pretestResponseTotalRef.current + currentIndex;
+      : pretestResponseTotalRef.current + currentIndex);
   const progress = isDone ? 1 : Math.min(completedTurns / totalTurns, 1);
 
   return (
@@ -897,17 +1007,18 @@ export default function NovaRiveLevelTest({ language, sentences }: Props) {
 
         {/* Progress bar */}
         <div className="shrink-0 relative z-20 bg-[#12151E]">
-          <ProgressBar progress={progress} />
+          <ProgressBar progress={progress} sparkleTrigger={levelTestReplySparkle} />
         </div>
 
         {/* Rive avatar + Chat overlay area */}
         <div className="relative flex-1 min-h-0">
           {/* Rive avatar floats on top */}
           <div
-            className="absolute top-0 left-1/2 z-10 pointer-events-none overflow-hidden"
+            className="absolute left-1/2 z-10 pointer-events-none overflow-hidden"
             style={{
               width: "326px",
               height: "240px",
+              top: "0px",
               margin: 0,
               padding: 0,
               transform: "translateX(-50%)",
@@ -916,21 +1027,34 @@ export default function NovaRiveLevelTest({ language, sentences }: Props) {
               backgroundSize: "100% 100%",
               backgroundPosition: "center",
               backgroundRepeat: "no-repeat",
-              borderRadius: "10px",
+              borderRadius: "20px",
             }}
           >
             <div
               className="pointer-events-none w-full h-full nova-canvas-blend"
-              style={{ transform: "scale(1.2)", transformOrigin: "center center" }}
+              style={{ transform: "scale(1.224)", transformOrigin: "center bottom" }}
             >
-              <SupernovaAvatar
-                isListening={phase === "recording"}
-                isThinking={phase === "transcribing" || phase === "evaluating"}
-                isSpeaking={phase === "playing"}
-                audioRef={audioRef}
-                lipSyncAnalyserRef={lipSyncAnalyserRef}
-                onSpeakEnd={stopTts}
-              />
+              {avatarVariant === "realistic-female" ? (
+                <RealisticFemaleAvatar
+                  isListening={phase === "recording"}
+                  isThinking={phase === "transcribing" || phase === "evaluating"}
+                  isSpeaking={phase === "playing"}
+                  audioRef={audioRef}
+                  lipSyncAnalyserRef={lipSyncAnalyserRef}
+                  onSpeakEnd={stopTts}
+                  onRiveInstance={onAvatarRiveInstance}
+                />
+              ) : (
+                <SupernovaAvatar
+                  isListening={phase === "recording"}
+                  isThinking={phase === "transcribing" || phase === "evaluating"}
+                  isSpeaking={phase === "playing"}
+                  audioRef={audioRef}
+                  lipSyncAnalyserRef={lipSyncAnalyserRef}
+                  onSpeakEnd={stopTts}
+                  onRiveInstance={onAvatarRiveInstance}
+                />
+              )}
             </div>
           </div>
 
@@ -992,6 +1116,8 @@ export default function NovaRiveLevelTest({ language, sentences }: Props) {
                           color: "#40b9f8",
                           paddingTop: "15px",
                           paddingBottom: "15px",
+                          paddingLeft: "8px",
+                          paddingRight: "8px",
                         }}
                       >
                         {interactive.ctaLabel}
@@ -1043,24 +1169,34 @@ export default function NovaRiveLevelTest({ language, sentences }: Props) {
               <div key={msg.id} className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
                 <div className={`flex flex-col gap-2 max-w-[80%] ${isUser ? "items-end" : "items-start"}`}>
                   <div
-                    className={`rounded-2xl px-4 py-2.5 text-sm leading-relaxed whitespace-pre-line ${
+                    className={`rounded-2xl whitespace-pre-line ${
                       isUser ? "rounded-br-sm" : "rounded-bl-sm"
+                    } ${
+                      isUser && !msg.isTappedResponse
+                        ? "px-3.5 py-3.5"
+                        : "px-4 py-2.5 text-sm leading-relaxed"
                     }`}
                     style={{
                       backgroundColor: "#1A1E2D",
                       color: isUser ? "#8C94AE" : "#f4f4f5",
                     }}
                   >
-                    <span style={msg.quizSentence ? { color: "#12151E" } : undefined}>
-                      {msg.text}
-                    </span>
-                    {msg.quizSentence && (
-                      <div
-                        className="mt-2 font-medium"
-                        style={{ fontSize: "20px", lineHeight: 1.4 }}
-                      >
-                        {msg.quizSentence}
-                      </div>
+                    {isUser && !msg.isTappedResponse ? (
+                      <Volume2 size={18} aria-label="Spoken reply" />
+                    ) : (
+                      <>
+                        <span style={msg.quizSentence ? { color: "#8C94AE" } : undefined}>
+                          {msg.text}
+                        </span>
+                        {msg.quizSentence && (
+                          <div
+                            className="mt-2 font-medium"
+                            style={{ fontSize: "20px", lineHeight: 1.4 }}
+                          >
+                            {msg.quizSentence}
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
 
@@ -1119,29 +1255,49 @@ export default function NovaRiveLevelTest({ language, sentences }: Props) {
             ) : (
               <div className="flex items-center justify-center relative py-3">
                 <div className="flex flex-col items-center gap-1">
-                  <button
-                    onClick={phase === "idle" ? handleTapStart : undefined}
-                    disabled={phase !== "idle"}
-                    aria-label="Start recording"
-                    className={`w-12 h-12 rounded-full flex items-center justify-center transition-all duration-200 ${
-                      phase !== "idle"
-                        ? "opacity-40 cursor-not-allowed"
-                        : "cursor-pointer active:scale-95 hover:brightness-95"
-                    }`}
-                    style={{ backgroundColor: "#75EABE" }}
-                  >
-                    {phase === "transcribing" || phase === "evaluating" ? (
-                      <span className="w-5 h-5 border-2 border-black border-t-transparent rounded-full animate-spin" />
-                    ) : (
-                      <MicIcon />
+                  <style>{`
+                    @keyframes micTapRipple {
+                      0% { transform: scale(1); opacity: 0.35; }
+                      100% { transform: scale(1.8); opacity: 0; }
+                    }
+                  `}</style>
+                  <div className="relative w-12 h-12">
+                    {phase === "idle" && (
+                      <>
+                        <span
+                          className="absolute inset-0 rounded-full pointer-events-none"
+                          style={{ backgroundColor: "#75EABE", animation: "micTapRipple 2.2s ease-out infinite" }}
+                        />
+                        <span
+                          className="absolute inset-0 rounded-full pointer-events-none"
+                          style={{ backgroundColor: "#75EABE", animation: "micTapRipple 2.2s ease-out 1.1s infinite" }}
+                        />
+                      </>
                     )}
-                  </button>
+                    <button
+                      onClick={phase === "idle" ? handleTapStart : undefined}
+                      disabled={phase !== "idle"}
+                      aria-label="Start recording"
+                      className={`relative w-12 h-12 rounded-full flex items-center justify-center transition-all duration-200 ${
+                        phase !== "idle"
+                          ? "opacity-40 cursor-not-allowed"
+                          : "cursor-pointer active:scale-95 hover:brightness-95"
+                      }`}
+                      style={{ backgroundColor: "#75EABE" }}
+                    >
+                      {phase === "transcribing" || phase === "evaluating" ? (
+                        <span className="w-5 h-5 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                      ) : (
+                        <MicIcon />
+                      )}
+                    </button>
+                  </div>
                   <p className="text-xs text-zinc-400">
                     {phase === "transcribing" || phase === "evaluating"
                       ? "Processing…"
                       : phase === "playing"
                       ? "AI speaking…"
-                      : "Tap to speak"}
+                      : "Tap to answer"}
                   </p>
                 </div>
               </div>

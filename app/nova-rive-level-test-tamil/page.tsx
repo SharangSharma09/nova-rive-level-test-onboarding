@@ -1,6 +1,6 @@
 import { TAMIL_SENTENCES } from "@/lib/level-test-content";
-import NovaRiveLevelTest from "@/components/NovaRiveLevelTest";
+import RiveVariantHarness from "@/components/RiveVariantHarness";
 
 export default function Page() {
-  return <NovaRiveLevelTest language="tamil" sentences={TAMIL_SENTENCES} />;
+  return <RiveVariantHarness language="tamil" sentences={TAMIL_SENTENCES} />;
 }

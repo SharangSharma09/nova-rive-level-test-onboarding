@@ -35,6 +35,7 @@ interface SupernovaAvatarProps {
   audioRef?: { current: HTMLAudioElement | null };
   lipSyncAnalyserRef?: { current: AnalyserNode | null };
   onSpeakEnd?: () => void;
+  onRiveInstance?: (rive: ReturnType<typeof useRive>["rive"]) => void;
 }
 
 export default function SupernovaAvatar({
@@ -42,6 +43,7 @@ export default function SupernovaAvatar({
   audioRef,
   lipSyncAnalyserRef,
   onSpeakEnd,
+  onRiveInstance,
 }: SupernovaAvatarProps) {
   const layout = useMemo(
     () => new Layout({ fit: Fit.Contain, alignment: Alignment.Center }),
@@ -56,6 +58,10 @@ export default function SupernovaAvatar({
     autoplay: true,
     autoBind: true,
   });
+
+  useEffect(() => {
+    onRiveInstance?.(rive ?? null);
+  }, [rive, onRiveInstance]);
 
   const vmi = rive?.viewModelInstance ?? null;
   const { setValue: setViseme } = useViewModelInstanceNumber("visemes", vmi);
