@@ -10,6 +10,11 @@ import { buildPretestScript, stripEmojisForTts, type PretestRegister } from "@/l
 
 export type AvatarVariant = "nova" | "realistic-female";
 
+interface Point {
+  x: number;
+  y: number;
+}
+
 const SupernovaAvatar = dynamic(
   () => import("@/components/SupernovaAvatar"),
   {
@@ -48,10 +53,40 @@ function splitForcedEnglishSegments(text: string, phrase: string): string[] {
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+// One entry per level-test question, captured live as each is graded — the
+// source data for the dynamic post-test results summary (never hardcoded).
+interface AnswerLogEntry {
+  concept: string;
+  sentence: string;
+  correct: boolean;
+  userAnswer: string;
+  expectedTranslation: string;
+}
+
 type MsgInteractive =
   | { type: "cta"; ctaLabel: string; tapped: boolean }
   | { type: "select"; options: string[]; selectedIndex?: number }
-  | { type: "final"; bullets: string[]; ctaLabel: string; tapped: boolean };
+  | { type: "final"; bullets: string[]; ctaLabel: string; tapped: boolean }
+  // Single-line, 2s auto-advancing loading beat — fires the instant "Show my
+  // results" is tapped, before the results message itself renders. No CTA,
+  // not the same thing as the 6-item "loader" sequence in Step 4.
+  | { type: "report-loading" }
+  // Dynamic post-test results — same chat-bubble shape as "final", generated
+  // live from the answer log rather than hardcoded copy.
+  | { type: "results"; log: AnswerLogEntry[]; ctaLabel: string; tapped: boolean }
+  // Single-line, 2s auto-advancing loading beat — same pattern as
+  // "report-loading" above, fires after the results bubble's "Next" and
+  // before the Grammar Overview message renders. Not the 14s sequence.
+  | { type: "grammar-loading" }
+  // Hardcoded prototype content (not wired to real data yet) — appears
+  // after the results bubble's "Next".
+  | { type: "grammar-overview"; ctaLabel: string; tapped: boolean }
+  // Pure loader bubble, no CTA — appears after the grammar overview's CTA.
+  | { type: "loader" }
+  // Hardcoded 30-day plan widget — auto-appears once the loader completes.
+  // The widget is visual only; msg.text (spoken/written separately) is the
+  // only part of this message ever sent to TTS.
+  | { type: "plan" };
 
 interface Msg {
   id: string;
@@ -75,6 +110,9 @@ interface Props {
   sentences: LevelSentence[];
   avatarVariant?: AvatarVariant;
   onAvatarRiveInstance?: (rive: Rive | null) => void;
+  // Bumping this (any change in value) jumps straight to the last level-test
+  // question — a prototyping shortcut, wired from outside the mobile UI.
+  skipToLastQuestionSignal?: number;
 }
 
 // ─── Icons ────────────────────────────────────────────────────────────────────
@@ -236,40 +274,408 @@ function TypingDots() {
   );
 }
 
-// ─── Results screen ────────────────────────────────────────────────────────────
+// ─── Post-test results summary ──────────────────────────────────────────────
+// Entirely generated from answerLogRef at render time — never hardcoded copy.
 
-function ResultsScreen({
-  score,
-  sentences,
-  results,
-}: {
-  score: number;
-  sentences: LevelSentence[];
-  results: boolean[];
-}) {
+function tokenizeWords(s: string): string[] {
+  return s.trim().split(/\s+/).filter(Boolean);
+}
+
+function normalizeWord(w: string): string {
+  return w.toLowerCase().replace(/[.,!?;:"'’]/g, "");
+}
+
+// Word-level LCS diff — flags[i] === true means that word is NOT part of the
+// common subsequence, i.e. it's the part that actually differs and should be
+// highlighted (only the wrong/fixed word(s), never the whole sentence).
+function diffWordFlags(a: string[], b: string[]): { aFlags: boolean[]; bFlags: boolean[] } {
+  const n = a.length;
+  const m = b.length;
+  const dp: number[][] = Array.from({ length: n + 1 }, () => new Array<number>(m + 1).fill(0));
+  for (let i = 1; i <= n; i++) {
+    for (let j = 1; j <= m; j++) {
+      dp[i][j] = normalizeWord(a[i - 1]!) === normalizeWord(b[j - 1]!)
+        ? dp[i - 1][j - 1]! + 1
+        : Math.max(dp[i - 1][j]!, dp[i][j - 1]!);
+    }
+  }
+  const aFlags = new Array<boolean>(n).fill(true);
+  const bFlags = new Array<boolean>(m).fill(true);
+  let i = n;
+  let j = m;
+  while (i > 0 && j > 0) {
+    if (normalizeWord(a[i - 1]!) === normalizeWord(b[j - 1]!)) {
+      aFlags[i - 1] = false;
+      bFlags[j - 1] = false;
+      i--;
+      j--;
+    } else if (dp[i - 1]![j]! >= dp[i]![j - 1]!) {
+      i--;
+    } else {
+      j--;
+    }
+  }
+  return { aFlags, bFlags };
+}
+
+function DiffedPair({ userAnswer, expected }: { userAnswer: string; expected: string }) {
+  const userWords = tokenizeWords(userAnswer);
+  const expectedWords = tokenizeWords(expected);
+  const { aFlags, bFlags } = diffWordFlags(userWords, expectedWords);
+
   return (
-    <div className="min-h-dvh bg-black text-white flex flex-col items-center px-4 py-10 gap-6">
-      <div className="text-center">
-        <div className="text-5xl font-bold text-green-400">{score}/{sentences.length}</div>
-        <div className="text-zinc-400 mt-1 text-sm">sentences correct on first try</div>
+    <div className="flex flex-col gap-1 text-sm">
+      <div className="flex items-start gap-2">
+        <span>❌</span>
+        <span style={{ color: "#f4f4f5" }}>
+          {userWords.map((w, i) => (
+            <span key={i} style={aFlags[i] ? { color: "#F97316", fontWeight: 700 } : undefined}>
+              {w}
+              {i < userWords.length - 1 ? " " : ""}
+            </span>
+          ))}
+        </span>
+      </div>
+      <div className="flex items-start gap-2">
+        <span>✅</span>
+        <span style={{ color: "#f4f4f5" }}>
+          {expectedWords.map((w, i) => (
+            <span key={i} style={bFlags[i] ? { color: "#3CDB9E", fontWeight: 700 } : undefined}>
+              {w}
+              {i < expectedWords.length - 1 ? " " : ""}
+            </span>
+          ))}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// Single static line, no fade-in sequence (that animation is reserved for
+// the 6-item Step 4 loader) — holds for a fixed 2s before auto-advancing.
+function ReportLoadingBody() {
+  return (
+    <div className="text-sm leading-relaxed" style={{ color: "#f4f4f5" }}>
+      Creating a level report...
+    </div>
+  );
+}
+
+// Same single-line, no-fade-in pattern as ReportLoadingBody above — a
+// separate, shorter beat from the 14s thinking sequence, not merged with it.
+function GrammarLoadingBody() {
+  return (
+    <div className="text-sm leading-relaxed" style={{ color: "#f4f4f5" }}>
+      Preparing your speaking & grammar overview...
+    </div>
+  );
+}
+
+// Inner content only — no card/background of its own. Rendered inside the
+// same standard AI message bubble every other chat message uses, with the
+// "Next" CTA handled by the shared cta/final/results button block below.
+function ResultsBody({ log }: { log: AnswerLogEntry[] }) {
+  const total = log.length;
+  const correctItems = log.filter((e) => e.correct);
+  const mistakeItems = log.filter((e) => !e.correct); // log is already in question order
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div>
+        <div className="text-sm font-semibold mb-2" style={{ color: "#f4f4f5" }}>
+          👍 {correctItems.length}/{total} correct!
+        </div>
+        <div className="flex flex-col gap-2">
+          {correctItems.map((item, i) => (
+            <div key={i} className="flex items-start gap-2 text-sm" style={{ color: "#8C94AE" }}>
+              <span>✓</span>
+              <span>{item.sentence}</span>
+            </div>
+          ))}
+        </div>
       </div>
 
-      <div className="w-full max-w-sm space-y-3">
-        {sentences.map((s, i) => (
-          <div
-            key={i}
-            className={`rounded-xl px-4 py-3 border ${
-              results[i]
-                ? "border-green-700 bg-green-950/40"
-                : "border-zinc-700 bg-zinc-900"
-            }`}
-          >
-            <div className="text-xs text-zinc-500 mb-0.5">{s.concept}</div>
-            <div className="text-sm">{s.sentence}</div>
-            <div className={`text-xs mt-1 ${results[i] ? "text-green-400" : "text-zinc-500"}`}>
-              {s.expectedTranslation}
+      {mistakeItems.length > 0 && (
+        <div>
+          <div className="text-sm font-semibold mb-2" style={{ color: "#f4f4f5" }}>
+            ⚠️ {mistakeItems.length}/{total} mistakes found
+          </div>
+          <div className="flex flex-col gap-3">
+            {mistakeItems.map((item, i) => (
+              <DiffedPair key={i} userAnswer={item.userAnswer} expected={item.expectedTranslation} />
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Grammar overview (hardcoded prototype content, not live data) ─────────
+
+type DotColor = "green" | "orange" | "red" | "grey";
+
+// grey is a filled, desaturated dot (not hollow) — visibly dimmer than the
+// three strength colors so it reads as "empty" sitting next to them.
+const DOT_COLOR: Record<DotColor, string> = {
+  green: "#3CDB9E",
+  orange: "#F97316",
+  red: "#EF4444",
+  grey: "#454B63",
+};
+
+// Each row is exactly 3 independent per-slot colors, left to right — never
+// one color applied to the whole row. Do not simplify/average this.
+const GRAMMAR_TOPICS: { name: string; dots: DotColor[] }[] = [
+  { name: "Articles", dots: ["green", "green", "green"] },
+  { name: "Prepositions", dots: ["green", "green", "grey"] },
+  { name: "Present Continuous", dots: ["orange", "orange", "grey"] },
+  { name: "Simple Past", dots: ["orange", "orange", "grey"] },
+  { name: "Simple Future", dots: ["orange", "orange", "grey"] },
+  { name: "Simple Present", dots: ["red", "grey", "grey"] },
+  { name: "Past Continuous", dots: ["red", "grey", "grey"] },
+];
+
+function StrengthDot({ color }: { color: DotColor }) {
+  return (
+    <span
+      className="inline-block rounded-full shrink-0"
+      style={{
+        width: "7px",
+        height: "7px",
+        backgroundColor: DOT_COLOR[color],
+      }}
+    />
+  );
+}
+
+function GrammarOverviewCard() {
+  return (
+    <div
+      className="rounded-2xl px-4 py-4 flex flex-col gap-3"
+      style={{
+        backgroundColor: "#12151E",
+        border: "1px solid #2B3044",
+        fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+        letterSpacing: "0.02em",
+      }}
+    >
+      <div className="flex items-center justify-between text-sm" style={{ color: "#f4f4f5" }}>
+        <span>Speaking Score</span>
+        <span style={{ color: "#3CDB9E", fontWeight: 700 }}>72%</span>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        {GRAMMAR_TOPICS.map((topic) => (
+          <div key={topic.name} className="flex items-center justify-between gap-3">
+            <span
+              className="text-xs px-2.5 py-1 rounded-md"
+              style={{ backgroundColor: "#1A1E2D", color: "#8C94AE" }}
+            >
+              {topic.name}
+            </span>
+            <div className="flex items-center gap-1.5 shrink-0">
+              {topic.dots.map((d, i) => (
+                <StrengthDot key={i} color={d} />
+              ))}
             </div>
           </div>
+        ))}
+      </div>
+
+      <div
+        className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs pt-3"
+        style={{ borderTop: "1px solid #2B3044", color: "#8C94AE" }}
+      >
+        <div className="flex items-center gap-1.5"><StrengthDot color="green" /> Strong</div>
+        <div className="flex items-center gap-1.5"><StrengthDot color="orange" /> Needs practice</div>
+        <div className="flex items-center gap-1.5"><StrengthDot color="red" /> Weak</div>
+      </div>
+    </div>
+  );
+}
+
+// Full Step-3 message body: intro line, the overview card, and the closing
+// copy (first sentence highlighted green) — msg.text is unused for this
+// interactive type since the content is richer than a plain string.
+function GrammarOverviewBody() {
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="text-sm leading-relaxed" style={{ color: "#f4f4f5" }}>
+        Aapke level test ke base par, yeh raha aapka English overview.
+      </div>
+
+      <GrammarOverviewCard />
+
+      <div className="text-sm leading-relaxed" style={{ color: "#f4f4f5" }}>
+        English mein confident banne ke liye, aapko do cheezein chahiye — apni{" "}
+        <span style={{ color: "#3CDB9E", fontWeight: 700 }}>grammar</span> sahi karna, aur{" "}
+        <span style={{ color: "#3CDB9E", fontWeight: 700 }}>speaking practice</span> karna. Dono milkar hi aapko fluent banayenge.
+      </div>
+
+      <div className="text-sm leading-relaxed" style={{ color: "#f4f4f5" }}>
+        Aapki strengths aur weaknesses ke base par, main aapka 30-day plan aise banaungi 👇
+      </div>
+    </div>
+  );
+}
+
+// ─── Post-test "thinking" loader ────────────────────────────────────────────
+// Pure loader, no user action: six lines reveal one at a time inside a single
+// card, then hold on the last line — no screen follows yet.
+
+const THINKING_LINES: { text: string; at: number; dots?: boolean }[] = [
+  { text: "Thinking...", at: 0 },
+  { text: "Analysing your weak areas", at: 2000 },
+  { text: "Analysing your strong areas", at: 4000 },
+  { text: "Understanding your goals", at: 6000 },
+  { text: "Building your practice plan", at: 8000, dots: true },
+  { text: "Finishing up...", at: 12000 },
+];
+
+// Inner content only — same reasoning as ResultsBody above.
+function ThinkingLoaderBody({ onComplete }: { onComplete?: () => void }) {
+  const [visibleCount, setVisibleCount] = useState(1);
+
+  useEffect(() => {
+    const timers = THINKING_LINES.map((line, i) =>
+      i === 0 ? null : window.setTimeout(() => setVisibleCount(i + 1), line.at)
+    ).filter((t): t is number => t !== null);
+    // "Auto-advances at 14s" — 2s after the last line (12s) appears.
+    const completeTimer = window.setTimeout(() => onComplete?.(), 14000);
+    return () => { timers.forEach((t) => clearTimeout(t)); clearTimeout(completeTimer); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return (
+    <div className="flex flex-col gap-1">
+      <style>{`
+        @keyframes thinkingLineFadeIn {
+          0% { opacity: 0; transform: translateY(4px); }
+          100% { opacity: 1; transform: translateY(0); }
+        }
+      `}</style>
+      {THINKING_LINES.slice(0, visibleCount).map((line, i) => {
+        const isLast = i === visibleCount - 1;
+        // Every line except the first ("Thinking...") and last ("Finishing
+        // up...") gets a checkmark — those two are pure status text, not
+        // completed steps.
+        const showCheckmark = i !== 0 && i !== THINKING_LINES.length - 1;
+        return (
+          <div
+            key={line.text}
+            className="text-sm leading-relaxed flex items-center gap-2"
+            style={{
+              color: isLast ? "#f4f4f5" : "#8C94AE",
+              animation: "thinkingLineFadeIn 400ms ease-out",
+            }}
+          >
+            {showCheckmark && <span style={{ color: "#8C94AE" }}>✓</span>}
+            <span>{line.text}</span>
+            {line.dots && isLast && <TypingDots />}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── 30-day plan widget (hardcoded prototype content) ───────────────────────
+// Purely visual — structurally separate from the message text above it, and
+// never itself passed to TTS (see handleThinkingComplete's playTts call,
+// which only ever receives msg.text).
+
+interface PlanWeek {
+  label: string;
+  emoji: string;
+  topics: string[];
+  boosterCount: number;
+}
+
+const PLAN_WEEKS: PlanWeek[] = [
+  {
+    label: "Week 1",
+    emoji: "🌱",
+    topics: ["Prepositions of place", "Talking about Past", "Prepositions of Time", "Talking about Future"],
+    boosterCount: 3,
+  },
+  {
+    label: "Week 2",
+    emoji: "🌿",
+    topics: ["Talking about What's Happening", "Talking about Future Activities"],
+    boosterCount: 5,
+  },
+  {
+    label: "Week 3",
+    emoji: "🪴",
+    topics: ["Talking about What You Were Doing", "Using To/By/For"],
+    boosterCount: 6,
+  },
+  {
+    label: "Week 4",
+    emoji: "🌳",
+    topics: [
+      "Talking about Daily Life",
+      "Sharing Views on the Future",
+      "Sharing Views on the Past",
+      "Irregular Past Verbs",
+      "Saying How Often",
+      "Describing Words",
+      "Negative Continuous Sentences",
+    ],
+    boosterCount: 3,
+  },
+];
+
+const PLAN_CTAS = [
+  "How will this plan help me?",
+  "What's a Fluency Booster?",
+  "Let's start my first lesson →",
+];
+
+function ThirtyDayPlanWidget() {
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="rounded-2xl px-4 py-4 flex flex-col gap-4" style={{ backgroundColor: "#12151E", border: "1px solid #2B3044" }}>
+        <div className="text-sm font-semibold" style={{ color: "#f4f4f5" }}>
+          📚 Your 30-Day Plan
+        </div>
+
+        {PLAN_WEEKS.map((week) => (
+          <div key={week.label} className="flex flex-col gap-1.5">
+            <div className="text-sm font-semibold" style={{ color: "#f4f4f5" }}>
+              {week.label} {week.emoji}
+            </div>
+            <div className="flex flex-col gap-1">
+              {week.topics.map((topic, i) => (
+                <div key={i} className="flex items-start gap-2 text-sm" style={{ color: "#8C94AE" }}>
+                  {/* Grey checkmarks throughout — never green here. */}
+                  <span>✓</span>
+                  <span>{topic}</span>
+                </div>
+              ))}
+            </div>
+            <div className="text-xs" style={{ color: "#8C94AE" }}>
+              Fluency Booster ⚡{week.boosterCount}
+            </div>
+          </div>
+        ))}
+
+        <div className="text-sm font-semibold" style={{ color: "#f4f4f5" }}>
+          🏆 Unlock next 60 days
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        {PLAN_CTAS.map((cta) => (
+          <button
+            key={cta}
+            type="button"
+            className="w-full text-center text-sm font-medium rounded-xl transition-colors"
+            style={{ backgroundColor: "#1A1E2D", border: "1px solid #2B3044", color: "#40b9f8", padding: "12px" }}
+          >
+            {cta}
+          </button>
         ))}
       </div>
     </div>
@@ -363,6 +769,76 @@ const SPARKLE_POSITIONS = [
   { left: "74%", top: "15px" },
   { left: "94%", top: "-10px" },
 ];
+
+// Decorative mic → progress-bar flourish, fired once per spoken level-test
+// reply. Purely visual: positions are computed once at spawn time and the
+// animation is entirely self-contained (rAF-driven), so it can never block or
+// delay the actual reply pipeline, and the bar updates correctly whether or
+// not this ever renders (e.g. reduced-motion skips it via spawnLightningBolt).
+const LIGHTNING_BOLT_DURATION_MS = 900;
+
+function LightningBolt({ from, to, onDone }: { from: Point; to: Point; onDone: () => void }) {
+  const elRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const mx = (from.x + to.x) / 2;
+    const my = (from.y + to.y) / 2;
+    // Bow the midpoint out perpendicular to the travel line — a gentle arc
+    // rather than a straight mechanical slide.
+    const bow = Math.min(len * 0.28, 70);
+    const px = -dy / len;
+    const py = dx / len;
+    const cx = mx + px * bow;
+    const cy = my + py * bow;
+
+    const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
+    const FADE_START = 0.78; // fade over the last ~22% of the flight
+
+    let rafId: number;
+    let start: number | null = null;
+
+    const tick = (now: number) => {
+      if (start === null) start = now;
+      const t = Math.min((now - start) / LIGHTNING_BOLT_DURATION_MS, 1);
+      const e = easeOutCubic(t);
+
+      const x = (1 - e) * (1 - e) * from.x + 2 * (1 - e) * e * cx + e * e * to.x;
+      const y = (1 - e) * (1 - e) * from.y + 2 * (1 - e) * e * cy + e * e * to.y;
+      const opacity = t < FADE_START ? 1 : Math.max(0, 1 - (t - FADE_START) / (1 - FADE_START));
+
+      const el = elRef.current;
+      if (el) {
+        el.style.transform = `translate(${x}px, ${y}px) translate(-50%, -50%)`;
+        el.style.opacity = String(opacity);
+      }
+
+      if (t < 1) {
+        rafId = requestAnimationFrame(tick);
+      } else {
+        onDone();
+      }
+    };
+
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
+    // from/to/onDone are captured once at spawn time — this effect intentionally
+    // runs exactly once per bolt instance (identity via the `key` prop at the call site).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return (
+    <div
+      ref={elRef}
+      className="absolute pointer-events-none select-none"
+      style={{ left: 0, top: 0, fontSize: "44px", zIndex: 60, willChange: "transform, opacity" }}
+    >
+      ⚡
+    </div>
+  );
+}
 
 function SparkleIcon({ size = 11, color = "#75EABE" }: { size?: number; color?: string }) {
   return (
@@ -509,6 +985,7 @@ export default function NovaRiveLevelTest({
   sentences,
   avatarVariant = "nova",
   onAvatarRiveInstance,
+  skipToLastQuestionSignal,
 }: Props) {
   const [messages, setMessages] = useState<Msg[]>([]);
   const messagesRef = useRef<Msg[]>([]);
@@ -518,7 +995,6 @@ export default function NovaRiveLevelTest({
   const [score, setScore] = useState(0);
   const [results, setResults] = useState<boolean[]>([]);
   const [isDone, setIsDone] = useState(false);
-  const [showResults, setShowResults] = useState(false);
 
   const [stage, setStage] = useState<Stage>("pretest");
   const [pretestIndex, setPretestIndex] = useState(0);
@@ -542,6 +1018,52 @@ export default function NovaRiveLevelTest({
   const cancelledRef = useRef(false);
   const currentIndexRef = useRef(0);
   const scoreRef = useRef(0);
+  // Set for exactly one render when the "skip to last question" shortcut
+  // fires — suppresses the normal pretest-finish / first-question effects so
+  // they don't race the skip's own jump-straight-to-Q6 message.
+  const debugSkipRef = useRef(false);
+  // Per-question log, appended live as each answer is graded — feeds the
+  // dynamic post-test results summary. Never reconstructed after the fact.
+  const answerLogRef = useRef<AnswerLogEntry[]>([]);
+
+  // ── Lightning-bolt flourish: mic button → progress bar ──────────────────────
+  const phoneBoxRef = useRef<HTMLDivElement>(null);
+  const micButtonWrapRef = useRef<HTMLDivElement>(null);
+  const progressBarWrapRef = useRef<HTMLDivElement>(null);
+  const boltInFlightRef = useRef(false);
+  const [bolt, setBolt] = useState<{ id: number; from: Point; to: Point } | null>(null);
+
+  const spawnLightningBolt = useCallback(() => {
+    if (boltInFlightRef.current) return; // let the in-flight bolt finish, never stack
+    if (typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+    const boxEl = phoneBoxRef.current;
+    const micEl = micButtonWrapRef.current;
+    const barEl = progressBarWrapRef.current;
+    if (!boxEl || !micEl || !barEl) return;
+
+    const boxRect = boxEl.getBoundingClientRect();
+    const micRect = micEl.getBoundingClientRect();
+    const barRect = barEl.getBoundingClientRect();
+
+    boltInFlightRef.current = true;
+    setBolt({
+      id: Date.now(),
+      from: {
+        x: micRect.left + micRect.width / 2 - boxRect.left,
+        y: micRect.top + micRect.height / 2 - boxRect.top,
+      },
+      to: {
+        x: barRect.left + barRect.width / 2 - boxRect.left,
+        y: barRect.top + barRect.height / 2 - boxRect.top,
+      },
+    });
+  }, []);
+
+  const handleBoltDone = useCallback(() => {
+    boltInFlightRef.current = false;
+    setBolt(null);
+  }, []);
 
   const { start: startMic, stop: stopMic, blob: audioBlob, isRecording, analyser, resetBlob } = useMicRecorder();
 
@@ -650,6 +1172,11 @@ export default function NovaRiveLevelTest({
 
   const advanceSentence = useCallback((wasCorrect: boolean) => {
     const nextIndex = currentIndexRef.current + 1;
+    // Fired here, in the same tick as the state updates below that actually
+    // move the bar — the bolt's flight and the bar's own fill transition
+    // play concurrently, so the bolt "lands" right as the bar finishes
+    // filling, whether this is a normal step or the final one.
+    spawnLightningBolt();
     setResults((prev) => {
       const updated = [...prev, wasCorrect];
       return updated;
@@ -661,10 +1188,20 @@ export default function NovaRiveLevelTest({
 
     if (nextIndex >= sentences.length) {
       setIsDone(true);
-      // Hold the progress bar at 100% (with its completion flourish) for a beat
-      // before swapping to the results screen — the bar must visibly reach 100%
-      // on this turn, not be skipped straight past.
-      window.setTimeout(() => setShowResults(true), 450);
+      // Nova's own reply to the final answer — stays in the normal chat
+      // thread (same screen the bar just hit 100% on) and waits for the
+      // user to tap through before the thinking loader takes over.
+      const msgId = "ai-final-cta";
+      const text = `Great! You've answered all ${sentences.length} questions. Ready to see your results?`;
+      const msg: Msg = {
+        id: msgId,
+        role: "ai",
+        text,
+        interactive: { type: "cta", ctaLabel: "Show my results", tapped: false },
+      };
+      messagesRef.current = [...messagesRef.current, msg];
+      setMessages([...messagesRef.current]);
+      void playTts(msgId, text);
       return;
     }
 
@@ -703,7 +1240,7 @@ export default function NovaRiveLevelTest({
     } else {
       showNextQuestion();
     }
-  }, [sentences, playTts]);
+  }, [sentences, playTts, spawnLightningBolt]);
 
   // ── Evaluate user translation ──────────────────────────────────────────────────
   // Nova asks questions one after another with no feedback in between — the
@@ -726,11 +1263,25 @@ export default function NovaRiveLevelTest({
         }),
       });
       const data = (await res.json()) as { correct: boolean };
+      answerLogRef.current = [...answerLogRef.current, {
+        concept: current.concept,
+        sentence: current.sentence,
+        correct: data.correct,
+        userAnswer: userText,
+        expectedTranslation: current.expectedTranslation,
+      }];
       advanceSentence(data.correct);
     } catch (err) {
       console.error("[evaluate] failed", err);
       // Don't get stuck on a broken API call — advance anyway (counted as
       // incorrect for scoring purposes).
+      answerLogRef.current = [...answerLogRef.current, {
+        concept: current.concept,
+        sentence: current.sentence,
+        correct: false,
+        userAnswer: userText,
+        expectedTranslation: current.expectedTranslation,
+      }];
       advanceSentence(false);
     }
   }, [sentences, language, advanceSentence]);
@@ -788,8 +1339,10 @@ export default function NovaRiveLevelTest({
     const preDelay = line.kind === "auto" ? (line.preDelayMs ?? 0) : 0;
 
     window.setTimeout(() => {
+      if (debugSkipRef.current) return; // a skip fired while this line was pending
       setPhase("evaluating"); // reuse the existing typing-dots bubble
       window.setTimeout(() => {
+        if (debugSkipRef.current) return;
         setPhase("idle");
         const msgId = `pretest-${line.id}`;
         const msg: Msg = { id: msgId, role: "ai", text };
@@ -910,10 +1463,144 @@ export default function NovaRiveLevelTest({
     setStage("test");
   }, [pushTappedResponse, stopTts]);
 
+  const handleShowResultsCta = useCallback((msgId: string) => {
+    const target = messagesRef.current.find((m) => m.id === msgId);
+    if (target?.interactive?.type !== "cta" || target.interactive.tapped) {
+      return;
+    }
+    messagesRef.current = messagesRef.current.map((m) =>
+      m.id === msgId && m.interactive?.type === "cta"
+        ? { ...m, interactive: { ...m.interactive, tapped: true } }
+        : m
+    );
+    stopTts();
+    pushTappedResponse("Show my results");
+
+    // Appends as the next message in the same chat thread — same bubble
+    // component as every other AI message, not a separate screen. A short
+    // 2s loading beat comes first, then auto-advances into the real results.
+    const loadingMsg: Msg = {
+      id: "ai-report-loading",
+      role: "ai",
+      text: "",
+      interactive: { type: "report-loading" },
+    };
+    messagesRef.current = [...messagesRef.current, loadingMsg];
+    setMessages([...messagesRef.current]);
+
+    window.setTimeout(() => {
+      const resultsMsg: Msg = {
+        id: "ai-results",
+        role: "ai",
+        text: "",
+        interactive: { type: "results", log: answerLogRef.current, ctaLabel: "Next", tapped: false },
+      };
+      messagesRef.current = [...messagesRef.current, resultsMsg];
+      setMessages([...messagesRef.current]);
+    }, 2000);
+  }, [stopTts, pushTappedResponse]);
+
+  const handleResultsNext = useCallback((msgId: string) => {
+    const target = messagesRef.current.find((m) => m.id === msgId);
+    if (target?.interactive?.type !== "results" || target.interactive.tapped) {
+      return;
+    }
+    messagesRef.current = messagesRef.current.map((m) =>
+      m.id === msgId && m.interactive?.type === "results"
+        ? { ...m, interactive: { ...m.interactive, tapped: true } }
+        : m
+    );
+    pushTappedResponse("Next");
+
+    // Same 2s loading-beat pattern as handleShowResultsCta's report-loading
+    // — auto-advances into the real Grammar Overview message, no CTA gate.
+    const loadingMsg: Msg = {
+      id: "ai-grammar-loading",
+      role: "ai",
+      text: "",
+      interactive: { type: "grammar-loading" },
+    };
+    messagesRef.current = [...messagesRef.current, loadingMsg];
+    setMessages([...messagesRef.current]);
+
+    window.setTimeout(() => {
+      const grammarMsgId = "ai-grammar-overview";
+      const grammarMsg: Msg = {
+        id: grammarMsgId,
+        role: "ai",
+        text: "",
+        interactive: { type: "grammar-overview", ctaLabel: "Create my 30 day plan", tapped: false },
+      };
+      messagesRef.current = [...messagesRef.current, grammarMsg];
+      setMessages([...messagesRef.current]);
+      // Spoken text mirrors GrammarOverviewBody's copy exactly — the dot
+      // widget itself has no text of its own, so nothing to strip out here.
+      const spokenText =
+        "Aapke level test ke base par, yeh raha aapka English overview. " +
+        "English mein confident banne ke liye, aapko do cheezein chahiye — apni grammar sahi karna, aur speaking practice karna. " +
+        "Dono milkar hi aapko fluent banayenge. " +
+        "Aapki strengths aur weaknesses ke base par, main aapka 30-day plan aise banaungi 👇";
+      void playTts(grammarMsgId, stripEmojisForTts(spokenText));
+    }, 2000);
+  }, [pushTappedResponse, playTts]);
+
+  const handleGrammarOverviewNext = useCallback((msgId: string) => {
+    const target = messagesRef.current.find((m) => m.id === msgId);
+    if (target?.interactive?.type !== "grammar-overview" || target.interactive.tapped) {
+      return;
+    }
+    messagesRef.current = messagesRef.current.map((m) =>
+      m.id === msgId && m.interactive?.type === "grammar-overview"
+        ? { ...m, interactive: { ...m.interactive, tapped: true } }
+        : m
+    );
+    pushTappedResponse("Create my 30 day plan");
+
+    // A plain spoken line — no widget, so it renders through the default
+    // AI-bubble path. The loader message only appears once this one's
+    // narration actually finishes (same "wait for TTS to end" convention
+    // used throughout the pretest script), not on a fixed timer.
+    const buildingMsgId = "ai-plan-building";
+    const buildingText = "Main aapka 30-day plan bana rahi hoon.";
+    const buildingMsg: Msg = { id: buildingMsgId, role: "ai", text: buildingText };
+    messagesRef.current = [...messagesRef.current, buildingMsg];
+    setMessages([...messagesRef.current]);
+
+    void playTts(buildingMsgId, stripEmojisForTts(buildingText), () => {
+      const loaderMsg: Msg = {
+        id: "ai-loader",
+        role: "ai",
+        text: "",
+        interactive: { type: "loader" },
+      };
+      messagesRef.current = [...messagesRef.current, loaderMsg];
+      setMessages([...messagesRef.current]);
+    });
+  }, [pushTappedResponse, playTts]);
+
+  // Fires once the 14s thinking loader completes — pushes the 30-day plan
+  // message. TTS is given ONLY the plain message text (emoji stripped, same
+  // rule as everywhere else); the widget itself is a structurally separate
+  // node and is never concatenated into the string sent to Cartesia.
+  const handleThinkingComplete = useCallback(() => {
+    const msgId = "ai-plan";
+    const text = "Your 30-day plan is ready! 🏆 This will help improve your English by up to 40%.";
+    const planMsg: Msg = {
+      id: msgId,
+      role: "ai",
+      text,
+      interactive: { type: "plan" },
+    };
+    messagesRef.current = [...messagesRef.current, planMsg];
+    setMessages([...messagesRef.current]);
+    void playTts(msgId, stripEmojisForTts(text));
+  }, [playTts]);
+
   // ── Auto-play first level-test sentence once the pre-test script finishes ────
 
   useEffect(() => {
     if (stage !== "test") return;
+    if (debugSkipRef.current) { debugSkipRef.current = false; return; } // skip owns this transition
     const first = sentences[0];
     if (!first) return;
     const displayLeadIn = `Let's begin. Question 1/${sentences.length}: translate this to English.`;
@@ -929,6 +1616,48 @@ export default function NovaRiveLevelTest({
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stage]);
+
+  // ── Debug shortcut: jump straight to the last level-test question ───────────
+  // Wired from outside the mobile UI (a prototyping aid, not user-facing) —
+  // any change in skipToLastQuestionSignal fires this, regardless of value.
+
+  const didMountSkipRef = useRef(false);
+  useEffect(() => {
+    if (!didMountSkipRef.current) {
+      didMountSkipRef.current = true;
+      return; // don't fire on initial mount, only on later signal changes
+    }
+    if (skipToLastQuestionSignal === undefined) return;
+
+    debugSkipRef.current = true;
+    stopTts();
+    window.speechSynthesis?.cancel();
+
+    const lastIndex = sentences.length - 1;
+    const last = sentences[lastIndex];
+    if (!last) return;
+
+    currentIndexRef.current = lastIndex;
+    setCurrentIndex(lastIndex);
+    setResults([]);
+    answerLogRef.current = [];
+    scoreRef.current = 0;
+    setScore(0);
+    setIsDone(false);
+    setPhase("idle");
+    setStage("test");
+
+    const displayLeadIn = `Question ${lastIndex + 1}/${sentences.length}: translate this to English.`;
+    const spokenLeadIn = `Question ${lastIndex + 1} of ${sentences.length}. Translate this to English.`;
+    const msgId = `ai-q-${lastIndex}`;
+    const msg: Msg = { id: msgId, role: "ai", text: displayLeadIn, quizSentence: last.sentence };
+    messagesRef.current = [msg];
+    setMessages([msg]);
+    void playTts(msgId, spokenLeadIn, () => {
+      void playTts(msgId, last.sentence);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [skipToLastQuestionSignal]);
 
   // ── Cleanup on unmount ───────────────────────────────────────────────────────
 
@@ -965,27 +1694,13 @@ export default function NovaRiveLevelTest({
     stopMic();
   }, [stopMic]);
 
-  // ── Done screen ───────────────────────────────────────────────────────────────
-
-  if (showResults) {
-    return (
-      <ResultsScreen
-        score={score}
-        sentences={sentences}
-        results={results}
-      />
-    );
-  }
-
   const current = sentences[currentIndex];
 
   // Progress moves on USER RESPONSES only — pretest auto lines (greeting,
   // assurance, etc.) don't move the bar; only CTA taps / MCQ selections do.
   // Computed from the actual script (not a hardcoded step count), so it stays
   // correct as either phase grows. isDone is the explicit override that snaps
-  // progress to exactly 100% on the same turn the results screen is triggered
-  // — never before — and the screen itself only swaps in ~450ms later so that
-  // moment is visible.
+  // progress to exactly 100% on the same turn the final question is answered.
   // An extra "started" step is counted as complete from the very first render
   // so the bar always shows a sliver of fill instead of sitting empty.
   const START_STEP = 1;
@@ -1000,15 +1715,17 @@ export default function NovaRiveLevelTest({
   return (
     <div className="min-h-dvh flex items-center justify-center" style={{ backgroundColor: "#FFFFFF" }}>
       <style>{`.nova-canvas-blend canvas { width: 100% !important; height: 100% !important; display: block; }`}</style>
-      <div className="relative flex flex-col w-[360px] h-[800px] mx-auto bg-[#12151E] overflow-hidden">
+      <div ref={phoneBoxRef} className="relative flex flex-col w-[360px] h-[800px] mx-auto bg-[#12151E] overflow-hidden">
 
         {/* Fake status bar */}
         <FakeStatusBar />
 
         {/* Progress bar */}
-        <div className="shrink-0 relative z-20 bg-[#12151E]">
+        <div ref={progressBarWrapRef} className="shrink-0 relative z-20 bg-[#12151E]">
           <ProgressBar progress={progress} sparkleTrigger={levelTestReplySparkle} />
         </div>
+
+        {bolt && <LightningBolt key={bolt.id} from={bolt.from} to={bolt.to} onDone={handleBoltDone} />}
 
         {/* Rive avatar + Chat overlay area */}
         <div className="relative flex-1 min-h-0">
@@ -1079,18 +1796,21 @@ export default function NovaRiveLevelTest({
             const isThisPlaying = playingMsgId === msg.id;
             const interactive = msg.interactive;
 
-            // AI message with a CTA (or the final line's bullets + CTA): the CTA is
-            // the last element INSIDE the same rounded card as the text, separated
-            // by a hairline divider — never a separate floating button. Once
-            // tapped, the button itself is removed (the tap is now recorded by a
-            // separate user-response bubble below); bullets/text stay visible.
-            if (!isUser && (interactive?.type === "cta" || interactive?.type === "final")) {
+            // AI message with a CTA (final line's bullets, dynamic results, or
+            // the plain post-test reply): the CTA is the last element INSIDE
+            // the same rounded card as the text, separated by a hairline
+            // divider — never a separate floating button. Once tapped, the
+            // button itself is removed. The thinking loader is the one
+            // variant with no CTA at all — a pure, self-contained bubble.
+            if (!isUser && (interactive?.type === "cta" || interactive?.type === "final" || interactive?.type === "results" || interactive?.type === "grammar-overview" || interactive?.type === "report-loading" || interactive?.type === "grammar-loading" || interactive?.type === "loader" || interactive?.type === "plan")) {
               return (
                 <div key={msg.id} className="flex justify-start">
                   <div className="max-w-[80%] w-full min-w-[240px] rounded-2xl rounded-bl-sm bg-[#1A1E2D] overflow-hidden">
-                    <div className="px-4 py-2.5 text-sm leading-relaxed whitespace-pre-line text-zinc-100">
-                      {msg.text}
-                    </div>
+                    {msg.text && (
+                      <div className="px-4 py-2.5 text-sm leading-relaxed whitespace-pre-line text-zinc-100">
+                        {msg.text}
+                      </div>
+                    )}
 
                     {interactive.type === "final" && (
                       <div className="px-4 pb-3 flex flex-col gap-1.5">
@@ -1103,11 +1823,53 @@ export default function NovaRiveLevelTest({
                       </div>
                     )}
 
-                    {!interactive.tapped && (
+                    {interactive.type === "results" && (
+                      <div className="px-4 py-3">
+                        <ResultsBody log={interactive.log} />
+                      </div>
+                    )}
+
+                    {interactive.type === "grammar-overview" && (
+                      <div className="px-4 py-3">
+                        <GrammarOverviewBody />
+                      </div>
+                    )}
+
+                    {interactive.type === "report-loading" && (
+                      <div className="px-4 py-3">
+                        <ReportLoadingBody />
+                      </div>
+                    )}
+
+                    {interactive.type === "grammar-loading" && (
+                      <div className="px-4 py-3">
+                        <GrammarLoadingBody />
+                      </div>
+                    )}
+
+                    {interactive.type === "loader" && (
+                      <div className="px-4 py-3">
+                        <ThinkingLoaderBody onComplete={handleThinkingComplete} />
+                      </div>
+                    )}
+
+                    {interactive.type === "plan" && (
+                      <div className="px-4 pb-3">
+                        <ThirtyDayPlanWidget />
+                      </div>
+                    )}
+
+                    {interactive.type !== "loader" && interactive.type !== "report-loading" && interactive.type !== "grammar-loading" && interactive.type !== "plan" && !interactive.tapped && (
                       <button
                         onClick={() =>
                           interactive.type === "final"
                             ? handlePretestFinalCta(msg.id)
+                            : interactive.type === "results"
+                            ? handleResultsNext(msg.id)
+                            : interactive.type === "grammar-overview"
+                            ? handleGrammarOverviewNext(msg.id)
+                            : msg.id === "ai-final-cta"
+                            ? handleShowResultsCta(msg.id)
                             : handlePretestCta(msg.id)
                         }
                         className="w-full text-center text-[15px] font-semibold transition-colors"
@@ -1237,8 +1999,10 @@ export default function NovaRiveLevelTest({
         </div>
         </div>
 
-        {/* Bottom bar — tap-to-speak only appears once the level test begins */}
-        {stage === "test" && (
+        {/* Bottom bar — tap-to-speak only appears once the level test begins,
+            and hides once the test is done (results/thinking bubbles that
+            follow are self-contained, no mic input expected there). */}
+        {stage === "test" && !isDone && (
           <div
             className="shrink-0 bg-[#12151E] pb-4 relative z-20"
             style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px), 16px)" }}
@@ -1261,7 +2025,7 @@ export default function NovaRiveLevelTest({
                       100% { transform: scale(1.8); opacity: 0; }
                     }
                   `}</style>
-                  <div className="relative w-12 h-12">
+                  <div ref={micButtonWrapRef} className="relative w-12 h-12">
                     {phase === "idle" && (
                       <>
                         <span

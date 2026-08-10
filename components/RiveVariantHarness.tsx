@@ -17,6 +17,7 @@ export default function RiveVariantHarness({ language, sentences }: RiveVariantH
   const [avatarVariant, setAvatarVariant] = useState<AvatarVariant>("nova");
   const [rive, setRive] = useState<Rive | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [skipSignal, setSkipSignal] = useState<number | undefined>(undefined);
 
   const handleVariantChange = useCallback((variant: AvatarVariant) => {
     setAvatarVariant(variant);
@@ -61,11 +62,23 @@ export default function RiveVariantHarness({ language, sentences }: RiveVariantH
         )}
       </div>
 
+      {/* Prototyping shortcut — fixed to the viewport, outside the mobile UI.
+          Jumps the phone straight to the last (6th) level-test question. */}
+      <button
+        type="button"
+        onClick={() => setSkipSignal((n) => (n ?? 0) + 1)}
+        className="fixed z-[100] px-3 py-2 rounded-full border text-sm font-medium transition-colors"
+        style={{ top: "16px", left: "16px", borderColor: "#2B3044", backgroundColor: "#12151E", color: "#8C94AE" }}
+      >
+        ⏭️ Skip to Q{sentences.length}
+      </button>
+
       <NovaRiveLevelTest
         language={language}
         sentences={sentences}
         avatarVariant={avatarVariant}
         onAvatarRiveInstance={setRive}
+        skipToLastQuestionSignal={skipSignal}
       />
 
       {settingsOpen && avatarVariant === "realistic-female" && (
