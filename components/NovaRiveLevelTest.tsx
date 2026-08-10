@@ -2,13 +2,14 @@
 
 import { useEffect, useLayoutEffect, useRef, useState, useCallback } from "react";
 import dynamic from "next/dynamic";
-import { Volume2, Square, X } from "lucide-react";
+import { Volume2, Square, X, Check, Loader2 } from "lucide-react";
 import type { Rive } from "@rive-app/react-canvas";
 import { LevelSentence } from "@/lib/level-test-content";
 import { useMicRecorder } from "@/lib/voice/use-mic-recorder";
-import { buildPretestScript, stripEmojisForTts, type PretestRegister } from "@/lib/pretest-dialogue";
+import { buildPretestScript, buildV2IntroScript, stripEmojisForTts, type PretestRegister } from "@/lib/pretest-dialogue";
 
 export type AvatarVariant = "nova" | "realistic-female";
+export type IntroVariant = "v1" | "v2";
 
 interface Point {
   x: number;
@@ -99,6 +100,13 @@ interface Msg {
   // the native-script sentence being tested, rendered larger (20px) and
   // separately from the surrounding instructional text.
   quizSentence?: string;
+  // V2 intro only: attaches the real-time grading state to this (user)
+  // message — see handleV2Grade. "checking" covers both the STT and grading
+  // wait, so there's never a gap with no visible state.
+  feedback?:
+    | { status: "checking" }
+    | { status: "correct" }
+    | { status: "incorrect"; original: string; corrected: string };
 }
 
 type Phase = "idle" | "recording" | "transcribing" | "evaluating" | "playing";
@@ -113,6 +121,14 @@ interface Props {
   // Bumping this (any change in value) jumps straight to the last level-test
   // question — a prototyping shortcut, wired from outside the mobile UI.
   skipToLastQuestionSignal?: number;
+  // V1 = existing pretest script, unchanged. V2 = the new 4-message intro
+  // (see buildV2IntroScript) — only the pretest/intro branches; the level
+  // test and everything after stays single-source between both.
+  introVariant?: IntroVariant;
+  // Template variables for V2 Message 2 — real values would come from
+  // post-login answers in production; the prototype defaults to samples.
+  v2Occupation?: string;
+  v2Goal?: string;
 }
 
 // ─── Icons ────────────────────────────────────────────────────────────────────
@@ -351,6 +367,96 @@ function DiffedPair({ userAnswer, expected }: { userAnswer: string; expected: st
   );
 }
 
+// ─── V2 intro: real-time speaking feedback ──────────────────────────────────
+// One unified card per spoken answer: a waveform row on top (the "you spoke"
+// indicator), then a state section below that's one of three things —
+// checking (STT + grading both covered, no gap with nothing visible),
+// correct (no mistakes), or the Figma-matched (node 12509:936) diff card.
+
+function SpeakingWaveform() {
+  // Static decorative bars — not reactive to real audio, just the "you sent
+  // a voice message" visual language from the design.
+  const heights = [5, 10, 7, 14, 9, 12, 6, 10, 8, 11, 5];
+  return (
+    <div className="flex items-center gap-[2px]">
+      {heights.map((h, i) => (
+        <span
+          key={i}
+          style={{ width: "2px", height: `${h}px`, backgroundColor: "#8C94AE", borderRadius: "1px" }}
+        />
+      ))}
+    </div>
+  );
+}
+
+// Content only — original line (wrong word/phrase orange), a hairline
+// divider, a "Feedback" label, the corrected line (fixed word/phrase green),
+// and a dotted-underlined "Explain" link. Colors pulled straight from the
+// design (#ff9904 / #75eabe / #8c94ae / #40b9f8), not the app's own
+// (slightly different) accent shades, per "match exactly". Reuses the same
+// word-level diff already built for the results screen.
+function IncorrectFeedbackBody({ original, corrected }: { original: string; corrected: string }) {
+  const originalWords = tokenizeWords(original);
+  const correctedWords = tokenizeWords(corrected);
+  const { aFlags, bFlags } = diffWordFlags(originalWords, correctedWords);
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="text-sm leading-relaxed" style={{ color: "#f4f4f5" }}>
+        {originalWords.map((w, i) => (
+          <span key={i} style={aFlags[i] ? { color: "#ff9904" } : undefined}>
+            {w}
+            {i < originalWords.length - 1 ? " " : ""}
+          </span>
+        ))}
+      </div>
+
+      <div style={{ height: "1px", backgroundColor: "#2B3044" }} />
+
+      <div className="flex flex-col gap-1">
+        <div className="text-xs" style={{ color: "#8c94ae" }}>Feedback</div>
+        <div className="text-sm leading-relaxed" style={{ color: "#f4f4f5" }}>
+          {correctedWords.map((w, i) => (
+            <span key={i} style={bFlags[i] ? { color: "#75eabe" } : undefined}>
+              {w}
+              {i < correctedWords.length - 1 ? " " : ""}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex justify-end">
+        <span
+          className="text-xs"
+          style={{ color: "#40b9f8", borderBottom: "1px dotted #8c94ae", paddingBottom: "2px", cursor: "pointer" }}
+        >
+          Explain
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function SpeakingFeedbackState({ feedback }: { feedback: NonNullable<Msg["feedback"]> }) {
+  if (feedback.status === "checking") {
+    return (
+      <div className="flex items-center gap-2 text-sm" style={{ color: "#8C94AE" }}>
+        <Loader2 size={14} className="animate-spin" />
+        Checking...
+      </div>
+    );
+  }
+  if (feedback.status === "correct") {
+    return (
+      <div className="flex items-center gap-2 text-sm" style={{ color: "#75eabe" }}>
+        <Check size={16} />
+        Great. No mistakes.
+      </div>
+    );
+  }
+  return <IncorrectFeedbackBody original={feedback.original} corrected={feedback.corrected} />;
+}
+
 // Single static line, no fade-in sequence (that animation is reserved for
 // the 6-item Step 4 loader) — holds for a fixed 2s before auto-advancing.
 function ReportLoadingBody() {
@@ -382,7 +488,7 @@ function ResultsBody({ log }: { log: AnswerLogEntry[] }) {
   return (
     <div className="flex flex-col gap-4">
       <div>
-        <div className="text-sm font-semibold mb-2" style={{ color: "#f4f4f5" }}>
+        <div className="text-sm font-semibold mb-2" style={{ color: "#3CDB9E" }}>
           👍 {correctItems.length}/{total} correct!
         </div>
         <div className="flex flex-col gap-2">
@@ -402,7 +508,11 @@ function ResultsBody({ log }: { log: AnswerLogEntry[] }) {
           </div>
           <div className="flex flex-col gap-3">
             {mistakeItems.map((item, i) => (
-              <DiffedPair key={i} userAnswer={item.userAnswer} expected={item.expectedTranslation} />
+              // 1px rule closes off each ❌/✅ pair so consecutive mistakes
+              // don't read as one run-on block.
+              <div key={i} className="pb-3" style={{ borderBottom: "1px solid #8C94AE" }}>
+                <DiffedPair userAnswer={item.userAnswer} expected={item.expectedTranslation} />
+              </div>
             ))}
           </div>
         </div>
@@ -460,9 +570,23 @@ function GrammarOverviewCard() {
         letterSpacing: "0.02em",
       }}
     >
-      <div className="flex items-center justify-between text-sm" style={{ color: "#f4f4f5" }}>
-        <span>Speaking Score</span>
-        <span style={{ color: "#3CDB9E", fontWeight: 700 }}>72%</span>
+      {/* Headline metrics — all three share one row format: label left,
+          colour-coded value right. */}
+      <div className="flex flex-col gap-2" style={{ fontSize: "12px" }}>
+        <div className="flex items-center justify-between" style={{ color: "#f4f4f5" }}>
+          <span>Speaking Score</span>
+          <span style={{ color: "#3CDB9E", fontWeight: 700 }}>72%</span>
+        </div>
+        <div className="flex items-center justify-between" style={{ color: "#f4f4f5" }}>
+          <span>English words spoken</span>
+          <span style={{ color: "#F472B6", fontWeight: 700 }}>120</span>
+        </div>
+        <div className="flex items-center justify-between" style={{ color: "#f4f4f5" }}>
+          <span>Time spoken</span>
+          <span style={{ color: "#FACC15", fontWeight: 700 }}>1min20s</span>
+        </div>
+        {/* Closes off the metrics block from the per-topic list below. */}
+        <div style={{ borderTop: "1px solid #2B3044" }} />
       </div>
 
       <div className="flex flex-col gap-2">
@@ -470,7 +594,7 @@ function GrammarOverviewCard() {
           <div key={topic.name} className="flex items-center justify-between gap-3">
             <span
               className="text-xs px-2.5 py-1 rounded-md"
-              style={{ backgroundColor: "#1A1E2D", color: "#8C94AE" }}
+              style={{ backgroundColor: "#333952", color: "#FFFFFF" }}
             >
               {topic.name}
             </span>
@@ -505,13 +629,13 @@ function GrammarOverviewBody() {
         Aapke level test ke base par, yeh raha aapka English overview.
       </div>
 
-      <GrammarOverviewCard />
-
       <div className="text-sm leading-relaxed" style={{ color: "#f4f4f5" }}>
         English mein confident banne ke liye, aapko do cheezein chahiye — apni{" "}
         <span style={{ color: "#3CDB9E", fontWeight: 700 }}>grammar</span> sahi karna, aur{" "}
         <span style={{ color: "#3CDB9E", fontWeight: 700 }}>speaking practice</span> karna. Dono milkar hi aapko fluent banayenge.
       </div>
+
+      <GrammarOverviewCard />
 
       <div className="text-sm leading-relaxed" style={{ color: "#f4f4f5" }}>
         Aapki strengths aur weaknesses ke base par, main aapka 30-day plan aise banaungi 👇
@@ -986,6 +1110,9 @@ export default function NovaRiveLevelTest({
   avatarVariant = "nova",
   onAvatarRiveInstance,
   skipToLastQuestionSignal,
+  introVariant = "v1",
+  v2Occupation = "kaam karte ho",
+  v2Goal = "interview",
 }: Props) {
   const [messages, setMessages] = useState<Msg[]>([]);
   const messagesRef = useRef<Msg[]>([]);
@@ -1002,7 +1129,9 @@ export default function NovaRiveLevelTest({
   // lines don't move the progress bar, per "progress bar moves on user responses".
   const [pretestResponseCount, setPretestResponseCount] = useState(0);
   const pretestLang: PretestRegister = language === "tamil" ? "ta" : "hi";
-  const pretestScriptRef = useRef(buildPretestScript(sentences.length));
+  const pretestScriptRef = useRef(
+    introVariant === "v2" ? buildV2IntroScript(v2Occupation, v2Goal) : buildPretestScript(sentences.length)
+  );
   const pretestResponseTotalRef = useRef(
     pretestScriptRef.current.filter((l) => l.kind !== "auto").length,
   );
@@ -1286,6 +1415,60 @@ export default function NovaRiveLevelTest({
     }
   }, [sentences, language, advanceSentence]);
 
+  // V2 intro only: the real tap-to-speak mic bar (same one the level test
+  // uses) appears once the "Tell me about yourself" question has finished
+  // narrating, and hides again the instant the answer is submitted. Declared
+  // here (not near the other render-time derived values below) because the
+  // transcribe effect right below needs it too.
+  const v2QuestionMsg = messages.find((m) => m.id === "pretest-v2-question");
+  const showV2MicBar =
+    introVariant === "v2" &&
+    stage === "pretest" &&
+    v2QuestionMsg?.interactive?.type === "cta" &&
+    !v2QuestionMsg.interactive.tapped;
+
+  // V2 intro only: grades the real transcript via Gemini and attaches the
+  // result to the same message the "checking" placeholder already put on
+  // screen. Message 3 only appears once grading resolves, matching "feedback
+  // renders, then Message 3 appears."
+  const handleV2Grade = useCallback(async (answerMsgId: string, transcript: string) => {
+    messagesRef.current = messagesRef.current.map((m) =>
+      m.id === answerMsgId ? { ...m, text: transcript } : m
+    );
+    setMessages([...messagesRef.current]);
+    setPhase("evaluating");
+
+    try {
+      const res = await fetch("/api/nova-onboarding/grade-speaking", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ transcript }),
+      });
+      const data = (await res.json()) as { correct: boolean; corrected: string };
+      messagesRef.current = messagesRef.current.map((m) =>
+        m.id === answerMsgId
+          ? {
+              ...m,
+              feedback: data.correct
+                ? { status: "correct" }
+                : { status: "incorrect", original: transcript, corrected: data.corrected },
+            }
+          : m
+      );
+    } catch (err) {
+      console.error("[v2-grade] failed", err);
+      // Don't get stuck on a broken API call — fail open rather than leave
+      // the card stuck on "Checking...".
+      messagesRef.current = messagesRef.current.map((m) =>
+        m.id === answerMsgId ? { ...m, feedback: { status: "correct" } } : m
+      );
+    } finally {
+      setMessages([...messagesRef.current]);
+      setPhase("idle");
+      setPretestIndex((i) => i + 1);
+    }
+  }, []);
+
   // ── Transcribe blob when recording stops ──────────────────────────────────────
 
   useEffect(() => {
@@ -1300,6 +1483,23 @@ export default function NovaRiveLevelTest({
 
     setPhase("transcribing");
 
+    // V2 intro only: show the "Checking..." card immediately — before we
+    // even know the transcript, let alone the grade — so there's no gap
+    // between "recording stopped" and "some feedback state is visible".
+    const isV2Answer = showV2MicBar;
+    const v2AnswerMsgId = "v2-answer";
+    if (isV2Answer) {
+      messagesRef.current = messagesRef.current.map((m) =>
+        m.id === "pretest-v2-question" && m.interactive?.type === "cta"
+          ? { ...m, interactive: { ...m.interactive, tapped: true } }
+          : m
+      );
+      const placeholderMsg: Msg = { id: v2AnswerMsgId, role: "user", text: "", feedback: { status: "checking" } };
+      messagesRef.current = [...messagesRef.current, placeholderMsg];
+      setMessages([...messagesRef.current]);
+      setPretestResponseCount((c) => c + 1);
+    }
+
     const transcribe = async () => {
       const formData = new FormData();
       formData.append("audio", audioBlob, "audio.webm");
@@ -1309,11 +1509,28 @@ export default function NovaRiveLevelTest({
         const data = (await res.json()) as { text?: string };
 
         if (data.text) {
-          const userMsg: Msg = { id: `u-${Date.now()}`, role: "user", text: data.text };
-          messagesRef.current = [...messagesRef.current, userMsg];
+          if (isV2Answer) {
+            void handleV2Grade(v2AnswerMsgId, data.text);
+          } else {
+            const userMsg: Msg = { id: `u-${Date.now()}`, role: "user", text: data.text };
+            messagesRef.current = [...messagesRef.current, userMsg];
+            setMessages([...messagesRef.current]);
+            setLevelTestReplySparkle((n) => n + 1);
+            void evaluateTranslation(data.text);
+          }
+        } else if (isV2Answer) {
+          // STT failed — drop the placeholder and re-arm the question's mic
+          // bar so the user can just try again, no dead-end error bubble.
+          messagesRef.current = messagesRef.current
+            .filter((m) => m.id !== v2AnswerMsgId)
+            .map((m) =>
+              m.id === "pretest-v2-question" && m.interactive?.type === "cta"
+                ? { ...m, interactive: { ...m.interactive, tapped: false } }
+                : m
+            );
           setMessages([...messagesRef.current]);
-          setLevelTestReplySparkle((n) => n + 1);
-          void evaluateTranslation(data.text);
+          setPretestResponseCount((c) => Math.max(0, c - 1));
+          setPhase("idle");
         } else {
           const errMsg: Msg = { id: `err-${Date.now()}`, role: "ai", text: "Couldn't catch that — tap the mic and try again." };
           messagesRef.current = [...messagesRef.current, errMsg];
@@ -1343,8 +1560,11 @@ export default function NovaRiveLevelTest({
       setPhase("evaluating"); // reuse the existing typing-dots bubble
       window.setTimeout(() => {
         if (debugSkipRef.current) return;
-        setPhase("idle");
         const msgId = `pretest-${line.id}`;
+        // Dev-only React StrictMode double-invokes this effect on mount,
+        // which would otherwise push this exact line twice — guard by id.
+        if (messagesRef.current.some((m) => m.id === msgId)) return;
+        setPhase("idle");
         const msg: Msg = { id: msgId, role: "ai", text };
         messagesRef.current = [...messagesRef.current, msg];
         setMessages([...messagesRef.current]);
@@ -1859,7 +2079,7 @@ export default function NovaRiveLevelTest({
                       </div>
                     )}
 
-                    {interactive.type !== "loader" && interactive.type !== "report-loading" && interactive.type !== "grammar-loading" && interactive.type !== "plan" && !interactive.tapped && (
+                    {interactive.type !== "loader" && interactive.type !== "report-loading" && interactive.type !== "grammar-loading" && interactive.type !== "plan" && msg.id !== "pretest-v2-question" && !interactive.tapped && (
                       <button
                         onClick={() =>
                           interactive.type === "final"
@@ -1921,6 +2141,28 @@ export default function NovaRiveLevelTest({
                         ))}
                       </div>
                     )}
+                  </div>
+                </div>
+              );
+            }
+
+            // V2 intro's spoken answer: one unified card (waveform row +
+            // checking/correct/incorrect state below), not a separate bubble
+            // plus a floating feedback card.
+            if (msg.feedback) {
+              return (
+                <div key={msg.id} className="flex justify-end">
+                  <div
+                    className="max-w-[80%] w-full min-w-[240px] rounded-2xl rounded-br-sm overflow-hidden border"
+                    style={{ borderColor: "#2B3044", backgroundColor: "#1A1E2D" }}
+                  >
+                    <div className="px-4 py-3.5 flex items-center justify-center gap-2">
+                      <Volume2 size={18} style={{ color: "#8C94AE" }} aria-label="Spoken reply" />
+                      <SpeakingWaveform />
+                    </div>
+                    <div className="px-4 pb-3.5" style={{ borderTop: "1px solid #2B3044", paddingTop: "12px" }}>
+                      <SpeakingFeedbackState feedback={msg.feedback} />
+                    </div>
                   </div>
                 </div>
               );
@@ -1999,10 +2241,10 @@ export default function NovaRiveLevelTest({
         </div>
         </div>
 
-        {/* Bottom bar — tap-to-speak only appears once the level test begins,
-            and hides once the test is done (results/thinking bubbles that
-            follow are self-contained, no mic input expected there). */}
-        {stage === "test" && !isDone && (
+        {/* Bottom bar — tap-to-speak appears once the level test begins (until
+            done), and — V2 intro only — for the "Tell me about yourself"
+            question's real mic answer. Same bar, same recording pipeline. */}
+        {((stage === "test" && !isDone) || showV2MicBar) && (
           <div
             className="shrink-0 bg-[#12151E] pb-4 relative z-20"
             style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px), 16px)" }}

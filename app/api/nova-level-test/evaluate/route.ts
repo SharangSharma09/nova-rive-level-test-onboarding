@@ -1,6 +1,4 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
-
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
+import { generateJsonWithGemini } from "@/lib/gemini";
 
 export async function POST(request: Request) {
   console.log("[level-test/evaluate] POST received");
@@ -35,17 +33,12 @@ Evaluate if the student's translation conveys the same meaning as the expected t
 Reply ONLY with valid JSON in this exact format (no markdown, no extra text):
 {"correct":true}`;
 
-  try {
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-    const result = await model.generateContent(prompt);
-    const raw = result.response.text().trim();
-    console.log("[level-test/evaluate] Gemini raw:", raw.slice(0, 200));
+  const parsed = await generateJsonWithGemini<{ correct: boolean }>(
+    prompt,
+    "level-test/evaluate"
+  );
 
-    const cleaned = raw.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
-    const parsed = JSON.parse(cleaned) as { correct: boolean };
-    return Response.json(parsed);
-  } catch (e) {
-    console.error("[level-test/evaluate] ✗ Gemini error or JSON parse failed", e);
-    return Response.json({ correct: false });
-  }
+  // Fail closed — an unscored answer counts as incorrect rather than inflating
+  // the level-test result.
+  return Response.json(parsed ?? { correct: false });
 }

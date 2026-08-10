@@ -59,6 +59,183 @@ export function stripEmojisForTts(text: string): string {
     .trim();
 }
 
+// The 3 MCQ calibration questions (speaking/grammar/time), each followed by
+// a short reaction line. Shared between V1's script and V2's — both scripts'
+// personalise-intro line explicitly promises "kuch sawaal poochungi" before
+// the level test, so these need to run in V2 too, not just in V1.
+function buildCalibrationQuestions(): PretestLine[] {
+  return [
+    // Q1: Speaking
+    {
+      id: "q1-speaking",
+      kind: "select",
+      text: {
+        hi: "🗣️ Chaliye pehla sawaal — kya aap aasaani se English mein 2-minute tak baat kar sakte hain?",
+        // TODO TA: needs updated Tanglish to match the new HI phrasing ("Chaliye pehla sawaal —" prefix).
+        ta: "🗣️ Neenga easy-a English la 2-minute conversation hold panna mudiyuma?",
+      },
+      options: [
+        { hi: "👍 Haan, kabhi kabhi", ta: "👍 Aamaam, chila velaila" },
+        {
+          hi: "😅 Bol leta hoon, par bahut dheere aur bahut pauses ke saath",
+          ta: "😅 Naan pesuven, aana romba slow-a, niraya pause vechundu pesuven.",
+        },
+        {
+          hi: "🙈 Nahi, atak jaata hoon aur dimaag blank ho jaata hai",
+          ta: "🙈 Illa, naan stuck aayiduven, mind blank-um aayiduchu.",
+        },
+      ],
+    },
+    // Q2: Grammar
+    {
+      id: "q2-grammar",
+      kind: "select",
+      text: {
+        hi: "✍️ Doosra sawaal — English mein sentence banane mein aap kitne comfortable hai?",
+        // TODO TA: needs updated Tanglish to match the new HI phrasing ("Doosra sawaal —" prefix).
+        ta: "✍️ English la sentences pannradhula neenga evlo comfortable?",
+      },
+      options: [
+        { hi: "✂️ Mere sentences chhote hote hain", ta: "✂️ Enoda sentences chinna-chinna-a irukkum." },
+        {
+          hi: "😅 Main lambe sentences bana sakta hoon, par bahut mistakes ke saath",
+          ta: "😅 Naan periya sentences pannuven, aana niraya mistakes-oda.",
+        },
+        {
+          hi: "🙂 Main lambe sentences bana sakta hoon, sirf kuch mistakes ke saath",
+          ta: "🙂 Naan periya sentences pannuven, konjam mistakes-oda mattum.",
+        },
+      ],
+    },
+    // Assurance
+    {
+      id: "assurance",
+      kind: "auto",
+      text: {
+        hi: "💪 Don't worry, main aapko English mein fluent hone mein poori help karungi.",
+        // TODO TA: HI wording changed completely — this Tanglish line is a stale
+        // placeholder (old meaning: "speaking & grammar both matter"). Needs a real
+        // Tanglish translation of the new HI line above.
+        ta: "💪 [TODO TA] Don't worry, main aapko English mein fluent hone mein poori help karungi.",
+      },
+      preDelayMs: 2000,
+    },
+    // Q3: Time commitment
+    {
+      id: "q3-time",
+      kind: "select-plain",
+      text: {
+        hi: "⏱️ Teesra sawaal — aap English bolne ke liye kitna samay de sakte hain?",
+        // TODO TA: needs updated Tanglish to match the new HI phrasing ("Teesra sawaal —" prefix).
+        ta: "⏱️ Neenga English pesa evlo neram kudukka mudiyum?",
+      },
+      options: ["5 minutes", "10 minutes", "20 minutes", "30 minutes"],
+    },
+    // Time reaction
+    {
+      id: "time-reaction",
+      kind: "auto",
+      text: {
+        hi: "📈 Aap jitna zyada time denge, utna aapki English behtar hogi.",
+        // TODO TA: brand-new line, no prior Tanglish translation exists yet.
+        ta: "📈 [TODO TA] Jitna zyada time denge, utna aapki English behtar hogi.",
+      },
+      preDelayMs: 0,
+    },
+  ];
+}
+
+// V2 onboarding intro — replaces V1's greeting/personalise-intro with a live
+// speaking demo, then rejoins V1's calibration questions before the same
+// transition into the level test. Everything from the level test onward is
+// untouched/shared — this only swaps which script the pretest stage walks
+// through. Reuses the existing "auto"/"cta"/"final" line kinds so it runs
+// through the same runPretestLine machinery as V1, no new kind needed.
+// Hinglish only for now (ta mirrors hi) — this flow doesn't have a Tanglish
+// pass yet.
+export function buildV2IntroScript(occupation: string, goal: string): PretestLine[] {
+  return [
+    // Line 1 — Nova intro
+    {
+      id: "v2-greeting",
+      kind: "auto",
+      text: {
+        hi: "👋 Hi! Main hoon Nova AI. Aapki 24/7 English teacher.",
+        ta: "👋 Hi! Main hoon Nova AI. Aapki 24/7 English teacher.",
+      },
+      preDelayMs: 0,
+    },
+    // Line 2a — Context (occupation/goal are template variables, not
+    // hardcoded — see Props.v2Occupation / Props.v2Goal on the component).
+    // Split from the question itself so they read as two separate messages.
+    {
+      id: "v2-context",
+      kind: "auto",
+      text: {
+        hi: `Aapne bataya ki aap ${occupation}, aur ${goal} ke liye English improve karna chahte ho. Chaliye, pehle main sunti hoon aap English mein kaise bolte ho.`,
+        ta: `Aapne bataya ki aap ${occupation}, aur ${goal} ke liye English improve karna chahte ho. Chaliye, pehle main sunti hoon aap English mein kaise bolte ho.`,
+      },
+      preDelayMs: 400,
+    },
+    // Line 2b — The actual question. Kind "cta" is reused purely for its
+    // "wait after narration, don't auto-advance" behavior — no button
+    // actually renders for this line (suppressed in NovaRiveLevelTest.tsx);
+    // once narration ends the real tap-to-speak mic bar appears instead, and
+    // the recorded answer is graded for real via /api/nova-onboarding/grade-speaking
+    // (see handleV2AnswerRecorded).
+    {
+      id: "v2-question",
+      kind: "cta",
+      text: {
+        hi: `Batao — agar interviewer poochhe "Tell me about yourself," aap English mein kaise bologe?`,
+        ta: `Batao — agar interviewer poochhe "Tell me about yourself," aap English mein kaise bologe?`,
+      },
+      cta: { hi: "Tap to answer", ta: "Tap to answer" },
+    },
+    // Line 3 — Capability reveal, appears right after the feedback card
+    {
+      id: "v2-capability-reveal",
+      kind: "auto",
+      text: {
+        hi: "Dekha? Jab bhi aap English bolte ho, main turant aapki galtiyan sudhaar deti hoon — taaki aap har din thoda aur behtar bano.",
+        ta: "Dekha? Jab bhi aap English bolte ho, main turant aapki galtiyan sudhaar deti hoon — taaki aap har din thoda aur behtar bano.",
+      },
+      preDelayMs: 600,
+    },
+    // Line 4 — Personalisation intro. Sets up the calibration questions that
+    // follow, so the MCQs arrive as part of a promised flow rather than out of
+    // nowhere. Mirrors V1's "personalise-intro" line.
+    {
+      id: "v2-personalise-intro",
+      kind: "cta",
+      text: {
+        hi: "Chaliye main aapka course plan personalise karungi — iske liye kuch sawaal poochungi aur ek chhota English level test loongi. Shuru karein?",
+        ta: "Chaliye main aapka course plan personalise karungi — iske liye kuch sawaal poochungi aur ek chhota English level test loongi. Shuru karein?",
+      },
+      cta: {
+        hi: "Yes, personalise my English course",
+        ta: "Yes, personalise my English course",
+      },
+    },
+    // Lines 5-9 — same 3 MCQ calibration questions (+ reaction lines) as V1,
+    // so the personalise-intro line's "kuch sawaal poochungi" promise is
+    // fulfilled.
+    ...buildCalibrationQuestions(),
+    // Line 10 — Transition into the shared level-test flow. Reuses the "final"
+    // kind purely for its CTA-triggers-stage-change behavior; no bullets.
+    {
+      id: "v2-transition",
+      kind: "final",
+      text: {
+        hi: "✨ Ab main aapka ek chhota English level test loongi. Shuru karein?",
+        ta: "✨ Ab main aapka ek chhota English level test loongi. Shuru karein?",
+      },
+      bullets: [],
+      cta: { hi: "Let's start →", ta: "Let's start →" },
+    },
+  ];
+}
+
 export function buildPretestScript(sentenceCount: number): PretestLine[] {
   return [
     // Line 1 — Greeting
@@ -81,83 +258,8 @@ export function buildPretestScript(sentenceCount: number): PretestLine[] {
       },
       cta: { hi: "Yes, personalise my English course", ta: "Yes, personalise my English course" },
     },
-    // Line 3 — Q1: Speaking
-    {
-      id: "q1-speaking",
-      kind: "select",
-      text: {
-        hi: "🗣️ Chaliye pehla sawaal — kya aap aasaani se English mein 2-minute tak baat kar sakte hain?",
-        // TODO TA: needs updated Tanglish to match the new HI phrasing ("Chaliye pehla sawaal —" prefix).
-        ta: "🗣️ Neenga easy-a English la 2-minute conversation hold panna mudiyuma?",
-      },
-      options: [
-        { hi: "👍 Haan, kabhi kabhi", ta: "👍 Aamaam, chila velaila" },
-        {
-          hi: "😅 Bol leta hoon, par bahut dheere aur bahut pauses ke saath",
-          ta: "😅 Naan pesuven, aana romba slow-a, niraya pause vechundu pesuven.",
-        },
-        {
-          hi: "🙈 Nahi, atak jaata hoon aur dimaag blank ho jaata hai",
-          ta: "🙈 Illa, naan stuck aayiduven, mind blank-um aayiduchu.",
-        },
-      ],
-    },
-    // Line 4 — Q2: Grammar
-    {
-      id: "q2-grammar",
-      kind: "select",
-      text: {
-        hi: "✍️ Doosra sawaal — English mein sentence banane mein aap kitne comfortable hai?",
-        // TODO TA: needs updated Tanglish to match the new HI phrasing ("Doosra sawaal —" prefix).
-        ta: "✍️ English la sentences pannradhula neenga evlo comfortable?",
-      },
-      options: [
-        { hi: "✂️ Mere sentences chhote hote hain", ta: "✂️ Enoda sentences chinna-chinna-a irukkum." },
-        {
-          hi: "😅 Main lambe sentences bana sakta hoon, par bahut mistakes ke saath",
-          ta: "😅 Naan periya sentences pannuven, aana niraya mistakes-oda.",
-        },
-        {
-          hi: "🙂 Main lambe sentences bana sakta hoon, sirf kuch mistakes ke saath",
-          ta: "🙂 Naan periya sentences pannuven, konjam mistakes-oda mattum.",
-        },
-      ],
-    },
-    // Line 5 — Assurance
-    {
-      id: "assurance",
-      kind: "auto",
-      text: {
-        hi: "💪 Don't worry, main aapko English mein fluent hone mein poori help karungi.",
-        // TODO TA: HI wording changed completely — this Tanglish line is a stale
-        // placeholder (old meaning: "speaking & grammar both matter"). Needs a real
-        // Tanglish translation of the new HI line above.
-        ta: "💪 [TODO TA] Don't worry, main aapko English mein fluent hone mein poori help karungi.",
-      },
-      preDelayMs: 2000,
-    },
-    // Line 6 — Q3: Time commitment
-    {
-      id: "q3-time",
-      kind: "select-plain",
-      text: {
-        hi: "⏱️ Teesra sawaal — aap English bolne ke liye kitna samay de sakte hain?",
-        // TODO TA: needs updated Tanglish to match the new HI phrasing ("Teesra sawaal —" prefix).
-        ta: "⏱️ Neenga English pesa evlo neram kudukka mudiyum?",
-      },
-      options: ["5 minutes", "10 minutes", "20 minutes", "30 minutes"],
-    },
-    // Line 7 — Time reaction
-    {
-      id: "time-reaction",
-      kind: "auto",
-      text: {
-        hi: "📈 Aap jitna zyada time denge, utna aapki English behtar hogi.",
-        // TODO TA: brand-new line, no prior Tanglish translation exists yet.
-        ta: "📈 [TODO TA] Jitna zyada time denge, utna aapki English behtar hogi.",
-      },
-      preDelayMs: 0,
-    },
+    // Lines 3-7 — the 3 MCQ calibration questions (+ reaction lines)
+    ...buildCalibrationQuestions(),
     // Line 8 — Know your English level
     {
       id: "know-your-level",

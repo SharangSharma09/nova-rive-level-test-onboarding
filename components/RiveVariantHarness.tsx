@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { StateMachineInputType, type Rive, type StateMachineInput } from "@rive-app/react-canvas";
 import { LevelSentence } from "@/lib/level-test-content";
-import NovaRiveLevelTest, { type AvatarVariant } from "@/components/NovaRiveLevelTest";
+import NovaRiveLevelTest, { type AvatarVariant, type IntroVariant } from "@/components/NovaRiveLevelTest";
 
 // Must match RealisticFemaleAvatar.tsx's ARTBOARD/STATE_MACHINE constants.
 const REALISTIC_FEMALE_STATE_MACHINE = "InLesson";
@@ -18,6 +18,9 @@ export default function RiveVariantHarness({ language, sentences }: RiveVariantH
   const [rive, setRive] = useState<Rive | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [skipSignal, setSkipSignal] = useState<number | undefined>(undefined);
+  // Default to V2 on load. Prototype control only — not a user-facing
+  // feature, hence outside the mobile UI like the other toggles.
+  const [introVariant, setIntroVariant] = useState<IntroVariant>("v2");
 
   const handleVariantChange = useCallback((variant: AvatarVariant) => {
     setAvatarVariant(variant);
@@ -73,12 +76,36 @@ export default function RiveVariantHarness({ language, sentences }: RiveVariantH
         ⏭️ Skip to Q{sentences.length}
       </button>
 
+      {/* V1/V2 intro picker — fixed to the viewport, outside the mobile UI.
+          Only the pretest/intro branches; level test onward stays shared. */}
+      <div
+        className="fixed z-[100] flex rounded-full overflow-hidden border"
+        style={{ top: "16px", right: "16px", borderColor: "#2B3044", backgroundColor: "#12151E" }}
+      >
+        {(["v1", "v2"] as const).map((variant) => (
+          <button
+            key={variant}
+            type="button"
+            onClick={() => setIntroVariant(variant)}
+            className="px-4 py-2 text-sm font-medium transition-colors"
+            style={{
+              backgroundColor: introVariant === variant ? "#75EABE" : "transparent",
+              color: introVariant === variant ? "#12151E" : "#8C94AE",
+            }}
+          >
+            {variant.toUpperCase()}
+          </button>
+        ))}
+      </div>
+
       <NovaRiveLevelTest
+        key={introVariant}
         language={language}
         sentences={sentences}
         avatarVariant={avatarVariant}
         onAvatarRiveInstance={setRive}
         skipToLastQuestionSignal={skipSignal}
+        introVariant={introVariant}
       />
 
       {settingsOpen && avatarVariant === "realistic-female" && (
