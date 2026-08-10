@@ -1969,7 +1969,13 @@ export default function NovaRiveLevelTest({
           >
             <div
               className="pointer-events-none w-full h-full nova-canvas-blend"
-              style={{ transform: "scale(1.224)", transformOrigin: "center bottom" }}
+              style={{
+                // Each rig is framed differently inside its artboard, so the
+                // two variants need their own scale. Both grow/shrink from the
+                // bottom edge so the character stays seated on it.
+                transform: avatarVariant === "realistic-female" ? "scale(0.8625)" : "scale(1.224)",
+                transformOrigin: "center bottom",
+              }}
             >
               {avatarVariant === "realistic-female" ? (
                 <RealisticFemaleAvatar

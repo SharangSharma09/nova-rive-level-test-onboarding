@@ -70,18 +70,22 @@ function buildCalibrationQuestions(): PretestLine[] {
       id: "q1-speaking",
       kind: "select",
       text: {
-        hi: "🗣️ Chaliye pehla sawaal — kya aap aasaani se English mein 2-minute tak baat kar sakte hain?",
+        hi: "🗣️ Chaliye pehla sawaal — kya aap aasaani se English mein 1-minute tak baat kar sakte hain?",
         // TODO TA: needs updated Tanglish to match the new HI phrasing ("Chaliye pehla sawaal —" prefix).
-        ta: "🗣️ Neenga easy-a English la 2-minute conversation hold panna mudiyuma?",
+        ta: "🗣️ Neenga easy-a English la 1-minute conversation hold panna mudiyuma?",
       },
       options: [
         { hi: "👍 Haan, kabhi kabhi", ta: "👍 Aamaam, chila velaila" },
         {
-          hi: "😅 Bol leta hoon, par bahut dheere aur bahut pauses ke saath",
+          hi: "😅 Dheere aur ruk-ruk ke",
+          // TODO TA: HI shortened — this Tanglish still carries the old, longer
+          // wording ("romba slow-a, niraya pause vechundu pesuven").
           ta: "😅 Naan pesuven, aana romba slow-a, niraya pause vechundu pesuven.",
         },
         {
-          hi: "🙈 Nahi, atak jaata hoon aur dimaag blank ho jaata hai",
+          hi: "🙈 Nahi, atak jaata hoon",
+          // TODO TA: HI shortened — Tanglish still has the "mind blank" clause
+          // the HI line no longer carries.
           ta: "🙈 Illa, naan stuck aayiduven, mind blank-um aayiduchu.",
         },
       ],
@@ -91,18 +95,23 @@ function buildCalibrationQuestions(): PretestLine[] {
       id: "q2-grammar",
       kind: "select",
       text: {
-        hi: "✍️ Doosra sawaal — English mein sentence banane mein aap kitne comfortable hai?",
+        hi: "✍️ Doosra sawaal — English mein sentence banane mein kitne comfortable ho?",
         // TODO TA: needs updated Tanglish to match the new HI phrasing ("Doosra sawaal —" prefix).
         ta: "✍️ English la sentences pannradhula neenga evlo comfortable?",
       },
       options: [
-        { hi: "✂️ Mere sentences chhote hote hain", ta: "✂️ Enoda sentences chinna-chinna-a irukkum." },
         {
-          hi: "😅 Main lambe sentences bana sakta hoon, par bahut mistakes ke saath",
+          hi: "1️⃣ Chhote sentences banata hoon",
+          // TODO TA: HI shortened and renumbered — Tanglish still uses the old
+          // ✂️/😅/🙂 icons and longer wording.
+          ta: "✂️ Enoda sentences chinna-chinna-a irukkum.",
+        },
+        {
+          hi: "2️⃣ Lambe sentences, kaafi mistakes ke saath",
           ta: "😅 Naan periya sentences pannuven, aana niraya mistakes-oda.",
         },
         {
-          hi: "🙂 Main lambe sentences bana sakta hoon, sirf kuch mistakes ke saath",
+          hi: "3️⃣ Lambe sentences, thodi mistakes ke saath",
           ta: "🙂 Naan periya sentences pannuven, konjam mistakes-oda mattum.",
         },
       ],
@@ -197,8 +206,8 @@ export function buildV2IntroScript(occupation: string, goal: string): PretestLin
       id: "v2-capability-reveal",
       kind: "auto",
       text: {
-        hi: "Dekha? Jab bhi aap English bolte ho, main turant aapki galtiyan sudhaar deti hoon — taaki aap har din thoda aur behtar bano.",
-        ta: "Dekha? Jab bhi aap English bolte ho, main turant aapki galtiyan sudhaar deti hoon — taaki aap har din thoda aur behtar bano.",
+        hi: "Dekha uppar? Jab bhi aap English bolte ho, main turant aapki galtiyan sudhaar deti hoon — taaki aap har din thoda aur behtar bano.",
+        ta: "Dekha uppar? Jab bhi aap English bolte ho, main turant aapki galtiyan sudhaar deti hoon — taaki aap har din thoda aur behtar bano.",
       },
       preDelayMs: 600,
     },
@@ -209,8 +218,8 @@ export function buildV2IntroScript(occupation: string, goal: string): PretestLin
       id: "v2-personalise-intro",
       kind: "cta",
       text: {
-        hi: "Chaliye main aapka course plan personalise karungi — iske liye kuch sawaal poochungi aur ek chhota English level test loongi. Shuru karein?",
-        ta: "Chaliye main aapka course plan personalise karungi — iske liye kuch sawaal poochungi aur ek chhota English level test loongi. Shuru karein?",
+        hi: "Par pehle, mujhe thoda aur jaanna hai aapke baare mein — taaki aapka plan bilkul aapke hisaab se bane. Bas kuch sawaal aur ek chhota level test. Shuru karein?",
+        ta: "Par pehle, mujhe thoda aur jaanna hai aapke baare mein — taaki aapka plan bilkul aapke hisaab se bane. Bas kuch sawaal aur ek chhota level test. Shuru karein?",
       },
       cta: {
         hi: "Yes, personalise my English course",
@@ -218,8 +227,7 @@ export function buildV2IntroScript(occupation: string, goal: string): PretestLin
       },
     },
     // Lines 5-9 — same 3 MCQ calibration questions (+ reaction lines) as V1,
-    // so the personalise-intro line's "kuch sawaal poochungi" promise is
-    // fulfilled.
+    // so the personalise-intro line's "bas kuch sawaal" promise is fulfilled.
     ...buildCalibrationQuestions(),
     // Line 10 — Transition into the shared level-test flow. Reuses the "final"
     // kind purely for its CTA-triggers-stage-change behavior; no bullets.

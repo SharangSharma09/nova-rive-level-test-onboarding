@@ -26,6 +26,15 @@ export default function RiveVariantHarness({ language, sentences }: RiveVariantH
     setAvatarVariant(variant);
     setRive(null);
     setSettingsOpen(false);
+    // Drop any pending "Skip to Q6" — the remount below restarts the script at
+    // message 1, and a stale signal would fire the skip again on the new
+    // instance and strand it on the last question mid-restart.
+    setSkipSignal(undefined);
+  }, []);
+
+  const handleIntroVariantChange = useCallback((variant: IntroVariant) => {
+    setIntroVariant(variant);
+    setSkipSignal(undefined); // same reason as above
   }, []);
 
   return (
@@ -86,7 +95,7 @@ export default function RiveVariantHarness({ language, sentences }: RiveVariantH
           <button
             key={variant}
             type="button"
-            onClick={() => setIntroVariant(variant)}
+            onClick={() => handleIntroVariantChange(variant)}
             className="px-4 py-2 text-sm font-medium transition-colors"
             style={{
               backgroundColor: introVariant === variant ? "#75EABE" : "transparent",
@@ -99,7 +108,10 @@ export default function RiveVariantHarness({ language, sentences }: RiveVariantH
       </div>
 
       <NovaRiveLevelTest
-        key={introVariant}
+        // Remounting on either toggle restarts the script from message 1 and
+        // lets it narrate straight away, so a variant switch always shows the
+        // new avatar speaking from the top rather than mid-conversation.
+        key={`${introVariant}-${avatarVariant}`}
         language={language}
         sentences={sentences}
         avatarVariant={avatarVariant}
