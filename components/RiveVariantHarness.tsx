@@ -30,13 +30,13 @@ const PANEL = {
 const INTRO_VARIANTS: { id: IntroVariant; label: string; blurb: string }[] = [
   {
     id: "v1",
-    label: "V1 - Taps only",
+    label: "V1 - Tap based inputs",
     blurb:
       "No voice anywhere in onboarding. Greets, then goes straight to the calibration questions.",
   },
   {
     id: "v2",
-    label: "V2 - Scenario question",
+    label: "V2 - Scenario question + AI correction",
     blurb:
       "Speaks first. Replays the goal captured at login, then asks how they'd answer \u201cTell me about yourself\u201d and corrects the reply live - the aha moment.",
   },
