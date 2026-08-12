@@ -61,6 +61,15 @@ function splitForcedEnglishSegments(text: string, phrase: string): string[] {
   return segments;
 }
 
+// When audio can't play at all (a fresh origin blocks autoplay until the user
+// has interacted), the script still has to advance — but at a readable pace.
+// Roughly 2.8 words/sec, floored and capped, so a blocked line dwells about as
+// long as it would have been spoken for instead of flashing past.
+function silentReadMs(text: string): number {
+  const words = text.trim().split(/\s+/).filter(Boolean).length;
+  return Math.min(Math.max(words * 360, 1200), 9000);
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 // One entry per level-test question, captured live as each is graded — the
@@ -1286,6 +1295,8 @@ export default function NovaRiveLevelTest({
   const audioCtxRef = useRef<AudioContext | null>(null);
   const audioSourceRef = useRef<AudioBufferSourceNode | null>(null);
   const lipSyncAnalyserRef = useRef<AnalyserNode | null>(null);
+  // Pending "audio never played, advance anyway" timer — see silentReadMs.
+  const silentEndRef = useRef<number | null>(null);
   const cancelledRef = useRef(false);
   const currentIndexRef = useRef(0);
   const scoreRef = useRef(0);
@@ -1350,6 +1361,10 @@ export default function NovaRiveLevelTest({
   // ── TTS playback ─────────────────────────────────────────────────────────────
 
   const stopTts = useCallback(() => {
+    if (silentEndRef.current !== null) {
+      clearTimeout(silentEndRef.current);
+      silentEndRef.current = null;
+    }
     audioRef.current?.pause();
     if (audioSourceRef.current) {
       audioSourceRef.current.onended = null;
@@ -1364,6 +1379,10 @@ export default function NovaRiveLevelTest({
 
   const playTts = useCallback(async (msgId: string, text: string, onEnd?: () => void) => {
     // Stop anything currently playing
+    if (silentEndRef.current !== null) {
+      clearTimeout(silentEndRef.current);
+      silentEndRef.current = null;
+    }
     audioRef.current?.pause();
     if (audioSourceRef.current) {
       audioSourceRef.current.onended = null;
@@ -1386,6 +1405,19 @@ export default function NovaRiveLevelTest({
       onEnd?.();
     };
 
+    // Audio was blocked or broke. Advancing immediately would stampede the
+    // whole script, so hold the line on screen for as long as speaking it would
+    // have taken, then continue.
+    const endAfterSilence = () => {
+      lipSyncAnalyserRef.current = null;
+      setPlayingMsgId(null);
+      setPhase("idle");
+      silentEndRef.current = window.setTimeout(() => {
+        silentEndRef.current = null;
+        onEnd?.();
+      }, silentReadMs(text));
+    };
+
     const ctx = audioCtxRef.current;
 
     if (!ctx || ctx.state === "closed") {
@@ -1406,7 +1438,7 @@ export default function NovaRiveLevelTest({
         setPhase("playing"); // after play() so avatar knows audio is running
       } catch (err) {
         console.error("[TTS] HTMLAudioElement fallback failed", err);
-        handleEnd();
+        endAfterSilence();
       }
       return;
     }
@@ -1440,7 +1472,7 @@ export default function NovaRiveLevelTest({
       audioSourceRef.current = null;
       lipSyncAnalyserRef.current = null;
       console.error("[TTS] AudioBufferSource failed", err);
-      handleEnd();
+      endAfterSilence();
     }
   }, []);
 
@@ -2098,6 +2130,30 @@ export default function NovaRiveLevelTest({
       window.speechSynthesis?.cancel();
       audioCtxRef.current?.close().catch(() => {});
     };
+  }, []);
+
+  // ── Audio unlock ─────────────────────────────────────────────────────────────
+  // Browsers block audio on an origin until the user has interacted with it.
+  // Locally that never bites — the dev origin builds up enough media engagement
+  // that Chrome just allows autoplay — but on a fresh deployed domain (and
+  // always on iOS) the first play() rejects and Nova is silent.
+  //
+  // An AudioContext created outside a gesture starts suspended, so create it
+  // *inside* the first one, anywhere on the page. That both unlocks playback and
+  // upgrades every later line from the HTMLAudio fallback to the AudioBuffer
+  // path, which is the one that drives lip sync.
+  useEffect(() => {
+    const unlock = () => {
+      if (!audioCtxRef.current || audioCtxRef.current.state === "closed") {
+        audioCtxRef.current = new AudioContext();
+      }
+      void audioCtxRef.current.resume().catch(() => {});
+      remove();
+    };
+    const events: (keyof DocumentEventMap)[] = ["pointerdown", "touchstart", "keydown"];
+    const remove = () => events.forEach((e) => document.removeEventListener(e, unlock, true));
+    events.forEach((e) => document.addEventListener(e, unlock, true));
+    return remove;
   }, []);
 
   // ── Recorder controls ────────────────────────────────────────────────────────
