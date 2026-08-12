@@ -9,6 +9,45 @@ import NovaRiveLevelTest, {
   type MinimizedShape,
 } from "@/components/NovaRiveLevelTest";
 
+// The control rail is deliberately light — it is developer chrome, and sharing
+// the app's dark palette made it read as part of the product UI.
+const PANEL = {
+  bg: "#FFFFFF",
+  border: "#E4E4E7",
+  heading: "#18181B",
+  label: "#27272A",
+  note: "#71717A",
+  selectedBg: "#18181B",
+  selectedFg: "#FFFFFF",
+  selectedCardBg: "#F4F4F5",
+  trackOff: "#D4D4D8",
+  knob: "#FFFFFF",
+} as const;
+
+// Blurbs for the control rail. Kept accurate to what each script actually does
+// rather than to the design intent — V1 never takes voice, and V2/V3 differ in
+// what they ask, not in whether they grade.
+const INTRO_VARIANTS: { id: IntroVariant; label: string; blurb: string }[] = [
+  {
+    id: "v1",
+    label: "V1 - Taps only",
+    blurb:
+      "No voice anywhere in onboarding. Greets, then goes straight to the calibration questions.",
+  },
+  {
+    id: "v2",
+    label: "V2 - Scenario question",
+    blurb:
+      "Speaks first. Replays the goal captured at login, then asks how they'd answer \u201cTell me about yourself\u201d and corrects the reply live - the aha moment.",
+  },
+  {
+    id: "v3",
+    label: "V3 - Need question",
+    blurb:
+      "Speaks first, open-ended: why English matters to them. Same live correction, plus it pulls their reason out of the answer and names it back.",
+  },
+];
+
 // Must match RealisticFemaleAvatar.tsx's ARTBOARD/STATE_MACHINE constants.
 const REALISTIC_FEMALE_STATE_MACHINE = "InLesson";
 
@@ -48,112 +87,126 @@ export default function RiveVariantHarness({ language, sentences }: RiveVariantH
 
   return (
     <>
-      {/* Avatar picker — fixed to the viewport, deliberately outside the
-          360x800 mobile UI box so it always renders on the surrounding page. */}
-      <div
-        className="fixed z-[100] flex items-center gap-3"
-        style={{ top: "16px", left: "50%", transform: "translateX(-50%)" }}
-      >
-        <div className="flex rounded-full overflow-hidden border" style={{ borderColor: "#2B3044", backgroundColor: "#12151E" }}>
-          {(["nova", "realistic-female"] as const).map((variant) => (
-            <button
-              key={variant}
-              type="button"
-              onClick={() => handleVariantChange(variant)}
-              className="px-4 py-2 text-sm font-medium transition-colors"
-              style={{
-                backgroundColor: avatarVariant === variant ? "#75EABE" : "transparent",
-                color: avatarVariant === variant ? "#12151E" : "#8C94AE",
-              }}
-            >
-              {variant === "nova" ? "Nova" : "Realistic Female"}
-            </button>
-          ))}
-        </div>
-
-        {avatarVariant === "realistic-female" && (
-          <button
-            type="button"
-            onClick={() => setSettingsOpen((o) => !o)}
-            className="px-3 py-2 rounded-full border text-sm font-medium transition-colors"
-            style={{ borderColor: "#2B3044", backgroundColor: "#12151E", color: "#8C94AE" }}
-          >
-            ⚙️ Rive options
-          </button>
-        )}
-      </div>
-
-      {/* Prototyping shortcut — fixed to the viewport, outside the mobile UI.
-          Jumps the phone straight to the last (6th) level-test question. */}
-      <button
-        type="button"
-        onClick={() => setSkipSignal((n) => (n ?? 0) + 1)}
-        className="fixed z-[100] px-3 py-2 rounded-full border text-sm font-medium transition-colors"
-        style={{ top: "16px", left: "16px", borderColor: "#2B3044", backgroundColor: "#12151E", color: "#8C94AE" }}
-      >
-        ⏭️ Skip to Q{sentences.length}
-      </button>
-
-      {/* V1/V2 intro picker — fixed to the viewport, outside the mobile UI.
-          Only the pretest/intro branches; level test onward stays shared. */}
-      <div
-        className="fixed z-[100] flex rounded-full overflow-hidden border"
-        style={{ top: "16px", right: "16px", borderColor: "#2B3044", backgroundColor: "#12151E" }}
-      >
-        {(["v1", "v2", "v3"] as const).map((variant) => (
-          <button
-            key={variant}
-            type="button"
-            onClick={() => handleIntroVariantChange(variant)}
-            className="px-4 py-2 text-sm font-medium transition-colors"
-            style={{
-              backgroundColor: introVariant === variant ? "#75EABE" : "transparent",
-              color: introVariant === variant ? "#12151E" : "#8C94AE",
-            }}
-          >
-            {variant.toUpperCase()}
-          </button>
-        ))}
-      </div>
-
-      {/* Minimised silhouette picker — sits under the intro picker, outside the
-          mobile UI. Only affects what the scale-down control collapses into. */}
-      <div
-        className="fixed z-[100] flex rounded-full overflow-hidden border"
-        style={{ top: "60px", right: "16px", borderColor: "#2B3044", backgroundColor: "#12151E" }}
-      >
-        {(["rect", "circle"] as const).map((shape) => (
-          <button
-            key={shape}
-            type="button"
-            onClick={() => setMinimizedShape(shape)}
-            className="px-4 py-2 text-sm font-medium transition-colors"
-            style={{
-              backgroundColor: minimizedShape === shape ? "#75EABE" : "transparent",
-              color: minimizedShape === shape ? "#12151E" : "#8C94AE",
-            }}
-          >
-            {shape === "rect" ? "▭ Rect" : "◯ Circle"}
-          </button>
-        ))}
-      </div>
-
-      {/* Scroll-to-minimise toggle — whether reading back through the thread
-          shrinks Nova into the corner on its own. */}
-      <button
-        type="button"
-        onClick={() => setMinimizeOnScroll((v) => !v)}
-        className="fixed z-[100] px-4 py-2 rounded-full border text-sm font-medium transition-colors"
+      {/* Prototype control rail — fixed to the left of the viewport, well
+          outside the 360x800 mobile UI so nothing here reads as product
+          surface. Everything that used to sit along the top lives here. */}
+      <aside
+        className="fixed z-[100] flex flex-col gap-5 overflow-y-auto rounded-2xl border"
         style={{
-          top: "104px",
-          right: "16px",
-          borderColor: "#2B3044",
-          backgroundColor: minimizeOnScroll ? "#75EABE" : "#12151E",
-          color: minimizeOnScroll ? "#12151E" : "#8C94AE",
+          top: "16px",
+          left: "16px",
+          maxHeight: "calc(100dvh - 32px)",
+          width: "244px",
+          borderColor: PANEL.border,
+          backgroundColor: PANEL.bg,
+          padding: "16px",
         }}
       >
-        ↕ Scroll-minimise {minimizeOnScroll ? "on" : "off"}
-      </button>
+        {/* ── Intro variant ─────────────────────────────────────────────── */}
+        <section className="flex flex-col gap-2">
+          <PanelHeading>Intro variant</PanelHeading>
+          <PanelNote>
+            Only the onboarding differs. The level test and every screen after it
+            is shared across all three.
+          </PanelNote>
+          <div className="flex flex-col gap-1.5">
+            {INTRO_VARIANTS.map((v) => {
+              const active = introVariant === v.id;
+              return (
+                <button
+                  key={v.id}
+                  type="button"
+                  onClick={() => handleIntroVariantChange(v.id)}
+                  className="text-left rounded-xl border transition-colors"
+                  style={{
+                    borderColor: active ? PANEL.selectedBg : PANEL.border,
+                    backgroundColor: active ? PANEL.selectedCardBg : "transparent",
+                    padding: "8px 10px",
+                  }}
+                >
+                  <div
+                    className="text-xs font-semibold"
+                    style={{ color: PANEL.heading }}
+                  >
+                    {v.label}
+                  </div>
+                  <div className="text-[11px] leading-snug mt-0.5" style={{ color: PANEL.note }}>
+                    {v.blurb}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+
+        {/* ── Nova Avatar ───────────────────────────────────────────────── */}
+        <section className="flex flex-col gap-2">
+          <PanelHeading>Nova Avatar</PanelHeading>
+
+          <Segmented
+            value={avatarVariant}
+            onChange={handleVariantChange}
+            options={[
+              { id: "nova", label: "New Nova" },
+              { id: "realistic-female", label: "Spy Woman" },
+            ]}
+          />
+
+          {avatarVariant === "realistic-female" && (
+            <button
+              type="button"
+              onClick={() => setSettingsOpen((o) => !o)}
+              className="rounded-full border text-xs font-medium transition-colors"
+              style={{
+                borderColor: PANEL.border,
+                backgroundColor: "transparent",
+                color: PANEL.label,
+                padding: "6px 10px",
+              }}
+            >
+              {settingsOpen ? "Hide" : "Show"} Rive options
+            </button>
+          )}
+
+          <PanelLabel>Minimised shape</PanelLabel>
+          <PanelNote>What the scale-down control collapses Nova into.</PanelNote>
+          <Segmented
+            value={minimizedShape}
+            onChange={setMinimizedShape}
+            options={[
+              { id: "rect", label: "Rect" },
+              { id: "circle", label: "Circle" },
+            ]}
+          />
+
+          <div style={{ marginTop: "4px" }}>
+            <ToggleSwitch
+              label="Minimise on scroll"
+              checked={minimizeOnScroll}
+              onChange={setMinimizeOnScroll}
+            />
+            <PanelNote>Reading back through the chat shrinks Nova on its own.</PanelNote>
+          </div>
+        </section>
+
+        {/* ── Debug ─────────────────────────────────────────────────────── */}
+        <section className="flex flex-col gap-2">
+          <PanelHeading>Debug</PanelHeading>
+          <button
+            type="button"
+            onClick={() => setSkipSignal((n) => (n ?? 0) + 1)}
+            className="rounded-full border text-xs font-medium transition-colors"
+            style={{
+              borderColor: PANEL.border,
+              backgroundColor: "transparent",
+              color: PANEL.label,
+              padding: "6px 10px",
+            }}
+          >
+            Skip to Q{sentences.length}
+          </button>
+        </section>
+      </aside>
 
       <NovaRiveLevelTest
         // Remounting on either toggle restarts the script from message 1 and
@@ -178,6 +231,110 @@ export default function RiveVariantHarness({ language, sentences }: RiveVariantH
         />
       )}
     </>
+  );
+}
+
+// ─── Control-rail primitives ──────────────────────────────────────────────────
+
+function PanelHeading({ children }: { children: React.ReactNode }) {
+  return (
+    <h2
+      className="text-[11px] font-semibold uppercase"
+      style={{ color: PANEL.heading, letterSpacing: "0.08em" }}
+    >
+      {children}
+    </h2>
+  );
+}
+
+function PanelLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="text-xs font-medium" style={{ color: PANEL.label, marginTop: "4px" }}>
+      {children}
+    </div>
+  );
+}
+
+function PanelNote({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="text-[11px] leading-snug" style={{ color: PANEL.note }}>
+      {children}
+    </p>
+  );
+}
+
+function Segmented<T extends string>({
+  options,
+  value,
+  onChange,
+}: {
+  options: { id: T; label: string }[];
+  value: T;
+  onChange: (next: T) => void;
+}) {
+  return (
+    <div
+      className="flex rounded-full overflow-hidden border"
+      style={{ borderColor: PANEL.border }}
+    >
+      {options.map((o) => {
+        const active = value === o.id;
+        return (
+          <button
+            key={o.id}
+            type="button"
+            onClick={() => onChange(o.id)}
+            className="flex-1 text-xs font-medium transition-colors"
+            style={{
+              backgroundColor: active ? PANEL.selectedBg : "transparent",
+              color: active ? PANEL.selectedFg : PANEL.label,
+              padding: "6px 8px",
+            }}
+          >
+            {o.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function ToggleSwitch({
+  label,
+  checked,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (next: boolean) => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      onClick={() => onChange(!checked)}
+      className="flex items-center justify-between gap-3 w-full"
+    >
+      <span className="text-xs font-medium" style={{ color: PANEL.label }}>
+        {label}
+      </span>
+      <span
+        className="relative shrink-0 rounded-full transition-colors"
+        style={{ width: "34px", height: "20px", backgroundColor: checked ? PANEL.selectedBg : PANEL.trackOff }}
+      >
+        <span
+          className="absolute rounded-full transition-all"
+          style={{
+            width: "14px",
+            height: "14px",
+            top: "3px",
+            left: checked ? "17px" : "3px",
+            backgroundColor: PANEL.knob,
+          }}
+        />
+      </span>
+    </button>
   );
 }
 
