@@ -6,10 +6,19 @@ import { Volume2, Square, X, Check, Loader2 } from "lucide-react";
 import type { Rive } from "@rive-app/react-canvas";
 import { LevelSentence } from "@/lib/level-test-content";
 import { useMicRecorder } from "@/lib/voice/use-mic-recorder";
-import { buildPretestScript, buildV2IntroScript, stripEmojisForTts, type PretestRegister } from "@/lib/pretest-dialogue";
+import {
+  buildPretestScript,
+  buildV2IntroScript,
+  buildV3IntroScript,
+  buildV3AckText,
+  stripEmojisForTts,
+  V3_ACK_LINE_ID,
+  V3_QUESTION_LINE_ID,
+  type PretestRegister,
+} from "@/lib/pretest-dialogue";
 
 export type AvatarVariant = "nova" | "realistic-female";
-export type IntroVariant = "v1" | "v2";
+export type IntroVariant = "v1" | "v2" | "v3";
 
 interface Point {
   x: number;
@@ -106,7 +115,11 @@ interface Msg {
   feedback?:
     | { status: "checking" }
     | { status: "correct" }
-    | { status: "incorrect"; original: string; corrected: string };
+    | { status: "incorrect"; original: string; corrected: string }
+    // V3 intro: same card, but the highlight spans come pre-marked by the
+    // grader (<e> on the original, <c> on the correction) instead of being
+    // inferred client-side by word diffing.
+    | { status: "tagged"; original: string; corrected: string };
 }
 
 type Phase = "idle" | "recording" | "transcribing" | "evaluating" | "playing";
@@ -129,6 +142,11 @@ interface Props {
   // post-login answers in production; the prototype defaults to samples.
   v2Occupation?: string;
   v2Goal?: string;
+  // Silhouette the scale-down control collapses into. Prototype control, wired
+  // from outside the mobile UI like the other toggles.
+  minimizedShape?: MinimizedShape;
+  // Auto-minimise Nova while the user is reading back through the thread.
+  minimizeOnScroll?: boolean;
 }
 
 // ─── Icons ────────────────────────────────────────────────────────────────────
@@ -395,34 +413,58 @@ function SpeakingWaveform() {
 // design (#ff9904 / #75eabe / #8c94ae / #40b9f8), not the app's own
 // (slightly different) accent shades, per "match exactly". Reuses the same
 // word-level diff already built for the results screen.
-function IncorrectFeedbackBody({ original, corrected }: { original: string; corrected: string }) {
+// One run of text plus whether it should be highlighted.
+type Segment = { text: string; hit: boolean };
+
+// Splits "I <e>am work</e> here" into highlighted / plain runs. Unmatched or
+// malformed tags just fall through as plain text rather than rendering markup.
+function parseTaggedSegments(text: string, tag: "e" | "c"): Segment[] {
+  const re = new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`, "g");
+  const segments: Segment[] = [];
+  let last = 0;
+  for (let m = re.exec(text); m !== null; m = re.exec(text)) {
+    if (m.index > last) segments.push({ text: text.slice(last, m.index), hit: false });
+    segments.push({ text: m[1]!, hit: true });
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) segments.push({ text: text.slice(last), hit: false });
+  // Strip any stray tags of the *other* kind so nothing leaks into the UI.
+  return segments.map((s) => ({ ...s, text: s.text.replace(/<\/?[ec]>/g, "") }));
+}
+
+// Word-diffed segments — V2's path, where the grader returns plain corrected
+// text and the highlight spans are inferred here.
+function diffedSegments(original: string, corrected: string): { a: Segment[]; b: Segment[] } {
   const originalWords = tokenizeWords(original);
   const correctedWords = tokenizeWords(corrected);
   const { aFlags, bFlags } = diffWordFlags(originalWords, correctedWords);
+  const join = (words: string[], flags: boolean[]) =>
+    words.map((w, i) => ({ text: w + (i < words.length - 1 ? " " : ""), hit: Boolean(flags[i]) }));
+  return { a: join(originalWords, aFlags), b: join(correctedWords, bFlags) };
+}
 
+function SegmentLine({ segments, color }: { segments: Segment[]; color: string }) {
+  return (
+    <div className="text-sm leading-relaxed" style={{ color: "#f4f4f5" }}>
+      {segments.map((s, i) => (
+        <span key={i} style={s.hit ? { color } : undefined}>
+          {s.text}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function IncorrectFeedbackBody({ original, corrected }: { original: Segment[]; corrected: Segment[] }) {
   return (
     <div className="flex flex-col gap-2">
-      <div className="text-sm leading-relaxed" style={{ color: "#f4f4f5" }}>
-        {originalWords.map((w, i) => (
-          <span key={i} style={aFlags[i] ? { color: "#ff9904" } : undefined}>
-            {w}
-            {i < originalWords.length - 1 ? " " : ""}
-          </span>
-        ))}
-      </div>
+      <SegmentLine segments={original} color="#ff9904" />
 
       <div style={{ height: "1px", backgroundColor: "#2B3044" }} />
 
       <div className="flex flex-col gap-1">
         <div className="text-xs" style={{ color: "#8c94ae" }}>Feedback</div>
-        <div className="text-sm leading-relaxed" style={{ color: "#f4f4f5" }}>
-          {correctedWords.map((w, i) => (
-            <span key={i} style={bFlags[i] ? { color: "#75eabe" } : undefined}>
-              {w}
-              {i < correctedWords.length - 1 ? " " : ""}
-            </span>
-          ))}
-        </div>
+        <SegmentLine segments={corrected} color="#75eabe" />
       </div>
 
       <div className="flex justify-end">
@@ -454,7 +496,16 @@ function SpeakingFeedbackState({ feedback }: { feedback: NonNullable<Msg["feedba
       </div>
     );
   }
-  return <IncorrectFeedbackBody original={feedback.original} corrected={feedback.corrected} />;
+  if (feedback.status === "tagged") {
+    return (
+      <IncorrectFeedbackBody
+        original={parseTaggedSegments(feedback.original, "e")}
+        corrected={parseTaggedSegments(feedback.corrected, "c")}
+      />
+    );
+  }
+  const { a, b } = diffedSegments(feedback.original, feedback.corrected);
+  return <IncorrectFeedbackBody original={a} corrected={b} />;
 }
 
 // Single static line, no fade-in sequence (that animation is reserved for
@@ -1102,6 +1153,46 @@ function ProgressBar({
   );
 }
 
+// ─── Avatar unit ───────────────────────────────────────────────────────────────
+// The avatar box and the blurred plate behind it are one unit. The plate is
+// deliberately larger than the box so the blur reads as a halo bleeding past
+// the edges; the two share a top edge and a horizontal centre, so the plate
+// overhangs left, right and bottom only — never above.
+const AVATAR_BOX_W = 326;
+const AVATAR_BOX_H = 240;
+const AVATAR_BACKDROP_W = 360;
+const AVATAR_BACKDROP_H = 260;
+const AVATAR_BACKDROP_BLUR = 24;
+const AVATAR_BACKDROP_COLOR = "#1A1E2D";
+// Minimised state: one scale factor drives the whole unit, so the box and the
+// plate stay in exact proportion (326x240 -> 130.4x96, 360x260 -> 144x104).
+const AVATAR_MINIMIZED_SCALE = 0.4;
+const AVATAR_SCALE_MS = 260;
+// Where the minimised unit parks, measured to the frame edges. Anchoring by
+// `right` (not `left`) is what makes this hold for both silhouettes: the
+// top-right transform origin pins that corner, so the right edge lands here
+// regardless of how wide the unit is before scaling.
+const AVATAR_MINIMIZED_RIGHT = 16;
+const AVATAR_MINIMIZED_TOP = 5;
+
+// The scale-down control must stay tappable while minimised, so it gets
+// counter-scaled out of the unit's 0.4: 24 * 0.4 * 1.667 = 16px on screen.
+const SCALE_BUTTON_PX = 24;
+const SCALE_BUTTON_MIN_PX = 16;
+const SCALE_BUTTON_COUNTER = SCALE_BUTTON_MIN_PX / (SCALE_BUTTON_PX * AVATAR_MINIMIZED_SCALE);
+
+// How far off the bottom of the thread counts as "reading back". Needs slack:
+// smooth-scrolling and sub-pixel layout leave a few px of drift at rest, and a
+// 0 threshold would flicker Nova on every settle.
+const SCROLL_MINIMIZE_THRESHOLD_PX = 24;
+
+// Minimised silhouette. "rect" keeps the full-size proportions. "circle"
+// narrows each layer to its own height so both come out square, then rounds
+// them — at 40% that's a 104px plate ring around a 96px avatar disc. The
+// narrowing is done on the layout width, not the scale, because scale() is
+// uniform and can't change an aspect ratio.
+export type MinimizedShape = "rect" | "circle";
+
 // ─── Main Component ────────────────────────────────────────────────────────────
 
 export default function NovaRiveLevelTest({
@@ -1113,6 +1204,8 @@ export default function NovaRiveLevelTest({
   introVariant = "v1",
   v2Occupation = "kaam karte ho",
   v2Goal = "interview",
+  minimizedShape = "circle",
+  minimizeOnScroll = true,
 }: Props) {
   const [messages, setMessages] = useState<Msg[]>([]);
   const messagesRef = useRef<Msg[]>([]);
@@ -1130,8 +1223,57 @@ export default function NovaRiveLevelTest({
   const [pretestResponseCount, setPretestResponseCount] = useState(0);
   const pretestLang: PretestRegister = language === "tamil" ? "ta" : "hi";
   const pretestScriptRef = useRef(
-    introVariant === "v2" ? buildV2IntroScript(v2Occupation, v2Goal) : buildPretestScript(sentences.length)
+    introVariant === "v3"
+      ? buildV3IntroScript()
+      : introVariant === "v2"
+      ? buildV2IntroScript(v2Occupation, v2Goal)
+      : buildPretestScript(sentences.length)
   );
+  // V3 only: the goal phrase the grader extracted, or null when it wasn't
+  // confident. Read when Message 3 narrates, to pick its Part B branch.
+  const v3GoalRef = useRef<string | null>(null);
+  // Two independent reasons Nova can be small, kept separate so neither
+  // clobbers the other: the button is an explicit user choice that persists,
+  // while scrolling back through the thread is a temporary "get out of the way"
+  // that undoes itself the moment you return to the latest message.
+  const [isManuallyMinimized, setIsManuallyMinimized] = useState(false);
+  const [isThreadScrolledUp, setIsThreadScrolledUp] = useState(false);
+  const isNovaMinimized = isManuallyMinimized || (minimizeOnScroll && isThreadScrolledUp);
+
+  // Scroll events alone can't tell "the user dragged the thread" from "a new
+  // message auto-scrolled it" — both look identical to onScroll. So arm the
+  // handler only on real input gestures, and disarm it whenever we scroll
+  // programmatically (see the auto-scroll effect below).
+  const userScrolledRef = useRef(false);
+  const armUserScroll = useCallback(() => {
+    userScrolledRef.current = true;
+  }, []);
+
+  const handleThreadScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
+    const fromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    // Arriving at the bottom always restores Nova, no matter who scrolled —
+    // that's how the auto-scroll to a new message brings her back.
+    if (fromBottom <= SCROLL_MINIMIZE_THRESHOLD_PX) {
+      setIsThreadScrolledUp(false);
+      return;
+    }
+    // Leaving the bottom only counts when the user did it. The mid-flight
+    // frames of a smooth auto-scroll also sit away from the bottom, and acting
+    // on those is what made Nova flicker on every new message.
+    if (userScrolledRef.current) setIsThreadScrolledUp(true);
+  }, []);
+
+  // Geometry for the Nova unit. Only the widths and the corner radii change
+  // between silhouettes — heights and the 0.4 scale are constant, so the
+  // circle's diameters fall out of the existing heights (260*0.4=104 plate,
+  // 240*0.4=96 box) exactly as specced.
+  const isCircle = isNovaMinimized && minimizedShape === "circle";
+  const unitW = isCircle ? AVATAR_BACKDROP_H : AVATAR_BACKDROP_W;
+  const boxW = isCircle ? AVATAR_BOX_H : AVATAR_BOX_W;
+  // Circle mode centres the avatar disc inside the plate disc (a 10px ring at
+  // this scale); rect mode keeps them sharing a top edge as before.
+  const boxTop = isCircle ? (AVATAR_BACKDROP_H - AVATAR_BOX_H) / 2 : 0;
   const pretestResponseTotalRef = useRef(
     pretestScriptRef.current.filter((l) => l.kind !== "auto").length,
   );
@@ -1197,6 +1339,11 @@ export default function NovaRiveLevelTest({
   const { start: startMic, stop: stopMic, blob: audioBlob, isRecording, analyser, resetBlob } = useMicRecorder();
 
   useEffect(() => {
+    // Auto-scrolling to the newest message is a system action, not the user
+    // reading back — so disarm the scroll handler for it. The handler still
+    // clears the flag once the scroll lands at the bottom, which is what
+    // restores Nova after a new message arrives.
+    userScrolledRef.current = false;
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, phase]);
 
@@ -1420,17 +1567,72 @@ export default function NovaRiveLevelTest({
   // narrating, and hides again the instant the answer is submitted. Declared
   // here (not near the other render-time derived values below) because the
   // transcribe effect right below needs it too.
-  const v2QuestionMsg = messages.find((m) => m.id === "pretest-v2-question");
+  // V2 asks "tell me about yourself", V3 asks "why do you want to improve
+  // English" — different copy, identical answer plumbing, so both resolve to
+  // one question message id and share the bar below.
+  const introQuestionLineId = introVariant === "v3" ? V3_QUESTION_LINE_ID : "v2-question";
+  const introQuestionMsgId = `pretest-${introQuestionLineId}`;
+  const introQuestionMsg = messages.find((m) => m.id === introQuestionMsgId);
   const showV2MicBar =
-    introVariant === "v2" &&
+    (introVariant === "v2" || introVariant === "v3") &&
     stage === "pretest" &&
-    v2QuestionMsg?.interactive?.type === "cta" &&
-    !v2QuestionMsg.interactive.tapped;
+    introQuestionMsg?.interactive?.type === "cta" &&
+    !introQuestionMsg.interactive.tapped;
 
   // V2 intro only: grades the real transcript via Gemini and attaches the
   // result to the same message the "checking" placeholder already put on
   // screen. Message 3 only appears once grading resolves, matching "feedback
   // renders, then Message 3 appears."
+  // V3 intro: corrects the answer AND extracts the user's goal in one call,
+  // then attaches the tagged-span feedback to the placeholder already on
+  // screen. The extracted goal is stashed for Message 3's Part B.
+  //
+  // Every failure path lands on goal_confident: false. Naming a goal the user
+  // never stated is worse than not naming one — it turns "it understood me"
+  // into "it wasn't listening" — so an unsure grade must never be upgraded to
+  // a confident one.
+  const handleV3Grade = useCallback(async (answerMsgId: string, answer: string) => {
+    messagesRef.current = messagesRef.current.map((m) =>
+      m.id === answerMsgId ? { ...m, text: answer } : m
+    );
+    setMessages([...messagesRef.current]);
+    setPhase("evaluating");
+
+    let original = answer;
+    let corrected = answer;
+    try {
+      const res = await fetch("/api/nova-onboarding/correct-and-extract", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ answer }),
+      });
+      const data = (await res.json()) as {
+        original?: string;
+        corrected?: string;
+        goal_theme?: string;
+        goal_confident?: boolean;
+      };
+      if (typeof data.original === "string" && typeof data.corrected === "string") {
+        original = data.original;
+        corrected = data.corrected;
+      }
+      v3GoalRef.current =
+        data.goal_confident === true && data.goal_theme?.trim() ? data.goal_theme.trim() : null;
+    } catch (err) {
+      // Hardcoded fallback — echo their own words back with no corrections and
+      // no goal, so the flow continues without inventing either.
+      console.error("[v3-grade] failed", err);
+      v3GoalRef.current = null;
+    } finally {
+      messagesRef.current = messagesRef.current.map((m) =>
+        m.id === answerMsgId ? { ...m, feedback: { status: "tagged", original, corrected } } : m
+      );
+      setMessages([...messagesRef.current]);
+      setPhase("idle");
+      setPretestIndex((i) => i + 1);
+    }
+  }, []);
+
   const handleV2Grade = useCallback(async (answerMsgId: string, transcript: string) => {
     messagesRef.current = messagesRef.current.map((m) =>
       m.id === answerMsgId ? { ...m, text: transcript } : m
@@ -1490,7 +1692,7 @@ export default function NovaRiveLevelTest({
     const v2AnswerMsgId = "v2-answer";
     if (isV2Answer) {
       messagesRef.current = messagesRef.current.map((m) =>
-        m.id === "pretest-v2-question" && m.interactive?.type === "cta"
+        m.id === introQuestionMsgId && m.interactive?.type === "cta"
           ? { ...m, interactive: { ...m.interactive, tapped: true } }
           : m
       );
@@ -1510,7 +1712,8 @@ export default function NovaRiveLevelTest({
 
         if (data.text) {
           if (isV2Answer) {
-            void handleV2Grade(v2AnswerMsgId, data.text);
+            if (introVariant === "v3") void handleV3Grade(v2AnswerMsgId, data.text);
+            else void handleV2Grade(v2AnswerMsgId, data.text);
           } else {
             const userMsg: Msg = { id: `u-${Date.now()}`, role: "user", text: data.text };
             messagesRef.current = [...messagesRef.current, userMsg];
@@ -1524,7 +1727,7 @@ export default function NovaRiveLevelTest({
           messagesRef.current = messagesRef.current
             .filter((m) => m.id !== v2AnswerMsgId)
             .map((m) =>
-              m.id === "pretest-v2-question" && m.interactive?.type === "cta"
+              m.id === introQuestionMsgId && m.interactive?.type === "cta"
                 ? { ...m, interactive: { ...m.interactive, tapped: false } }
                 : m
             );
@@ -1552,7 +1755,11 @@ export default function NovaRiveLevelTest({
     const line = pretestScriptRef.current[index];
     if (!line) return;
 
-    const text = line.text[pretestLang];
+    // V3's Message 3 is the one script line whose copy isn't fixed — its
+    // Part B names the extracted goal, or falls back to the generic
+    // acknowledgment when the grader wasn't confident.
+    const text =
+      line.id === V3_ACK_LINE_ID ? buildV3AckText(v3GoalRef.current) : line.text[pretestLang];
     const preDelay = line.kind === "auto" ? (line.preDelayMs ?? 0) : 0;
 
     window.setTimeout(() => {
@@ -1949,27 +2156,85 @@ export default function NovaRiveLevelTest({
 
         {/* Rive avatar + Chat overlay area */}
         <div className="relative flex-1 min-h-0">
-          {/* Rive avatar floats on top */}
+          {/* Nova unit — the blur plate and the avatar box scale together as
+              one. A single transform on this wrapper is what keeps them locked:
+              scaling them separately would let rounding drift the two apart.
+              Centred with marginLeft rather than translateX(-50%) so `transform`
+              is free to carry the scale alone.
+              z-[5] deliberately: the chat thread below is position:absolute with
+              z-index:auto, which paints at the same level as z-index:0 in DOM
+              order — and it comes later, so at z-0 this unit sat *under* the
+              messages despite being opaque. */}
           <div
-            className="absolute left-1/2 z-10 pointer-events-none overflow-hidden"
+            className="absolute z-[5] pointer-events-none"
             style={{
-              width: "326px",
-              height: "240px",
-              top: "0px",
+              width: `${unitW}px`,
+              height: `${AVATAR_BACKDROP_H}px`,
+              // Anchored by its right edge. At full size the unit is exactly the
+              // 360px frame width, so right:0 sits flush/centred; minimised, the
+              // top-right origin holds that same edge, so this is simply where
+              // the shrunken unit ends up — true for both silhouettes even
+              // though they differ in width.
+              top: `${isNovaMinimized ? AVATAR_MINIMIZED_TOP : 0}px`,
+              right: `${isNovaMinimized ? AVATAR_MINIMIZED_RIGHT : 0}px`,
+              transform: `scale(${isNovaMinimized ? AVATAR_MINIMIZED_SCALE : 1})`,
+              transformOrigin: "top right",
+              transition: `transform ${AVATAR_SCALE_MS}ms linear, width ${AVATAR_SCALE_MS}ms linear, top ${AVATAR_SCALE_MS}ms linear, right ${AVATAR_SCALE_MS}ms linear`,
+            }}
+          >
+            {/* Blur plate — fills the unit */}
+            <div
+              className="absolute inset-0"
+              style={{
+                backgroundColor: AVATAR_BACKDROP_COLOR,
+                filter: `blur(${AVATAR_BACKDROP_BLUR}px)`,
+                borderRadius: isCircle ? "50%" : "0px",
+                transition: `border-radius ${AVATAR_SCALE_MS}ms linear`,
+              }}
+            />
+
+          {/* Avatar frame — deliberately NOT overflow-hidden, so the scale-down
+              control below can sit at its corner without being eaten by the
+              circular clip on the box inside it. */}
+          <div
+            className="absolute z-10"
+            style={{
+              width: `${boxW}px`,
+              height: `${AVATAR_BOX_H}px`,
+              top: `${boxTop}px`,
+              left: "50%",
+              marginLeft: `-${boxW / 2}px`,
+              transition: `width ${AVATAR_SCALE_MS}ms linear, margin-left ${AVATAR_SCALE_MS}ms linear, top ${AVATAR_SCALE_MS}ms linear`,
+            }}
+          >
+          {/* The box itself — background, clip and radius */}
+          <div
+            className="absolute inset-0 overflow-hidden"
+            style={{
               margin: 0,
               padding: 0,
-              transform: "translateX(-50%)",
               backgroundColor: "#1A1E2D",
               backgroundImage: "url('/classroom-bg.jpg')",
               backgroundSize: "100% 100%",
               backgroundPosition: "center",
               backgroundRepeat: "no-repeat",
-              borderRadius: "20px",
+              borderRadius: isCircle ? "50%" : "20px",
+              transition: `border-radius ${AVATAR_SCALE_MS}ms linear`,
             }}
           >
             <div
-              className="pointer-events-none w-full h-full nova-canvas-blend"
+              className="pointer-events-none nova-canvas-blend absolute"
               style={{
+                // Pinned to the full-size box footprint and centred, rather than
+                // w-full/h-full: when the box narrows for the circle the canvas
+                // keeps its dimensions and simply gets cropped, instead of Rive
+                // re-fitting the artboard into a narrower canvas and shrinking
+                // the avatar.
+                width: `${AVATAR_BOX_W}px`,
+                height: `${AVATAR_BOX_H}px`,
+                top: 0,
+                left: "50%",
+                marginLeft: `-${AVATAR_BOX_W / 2}px`,
                 // Each rig is framed differently inside its artboard, so the
                 // two variants need their own scale. Both grow/shrink from the
                 // bottom edge so the character stays seated on it.
@@ -2001,22 +2266,69 @@ export default function NovaRiveLevelTest({
             </div>
           </div>
 
-          {/* Fade-out div directly below the Nova container — blends it into the chat */}
-          <div
-            className="absolute left-0 z-10 pointer-events-none"
-            style={{
-              top: "240px",
-              width: "360px",
-              height: "60px",
-              background: "linear-gradient(to bottom, #12151E 0%, rgba(18,21,30,0) 100%)",
-            }}
-          />
+            {/* Scale-down control, at the frame's bottom-right — a sibling of
+                the clipped box, not a child, so the circular silhouette can't
+                clip it away. Re-enables pointer events (the unit above is
+                pointer-events-none, so this is the only hit-testable thing in
+                it). Toggles both sizes. */}
+            <button
+              type="button"
+              aria-label={isNovaMinimized ? "Scale up" : "Scale down"}
+              onClick={() => setIsManuallyMinimized((v) => !v)}
+              className="absolute z-20 pointer-events-auto flex items-center justify-center"
+              style={{
+                right: "8px",
+                bottom: "8px",
+                width: `${SCALE_BUTTON_PX}px`,
+                height: `${SCALE_BUTTON_PX}px`,
+                // Counter-scales the unit's 0.4 so the control renders at 16px
+                // instead of collapsing to 9.6px — it's the only way back to
+                // full size, so it has to stay hittable. Anchored bottom-right
+                // so it grows inward from its corner rather than drifting off.
+                transform: isNovaMinimized ? `scale(${SCALE_BUTTON_COUNTER})` : "none",
+                transformOrigin: "bottom right",
+                transition: `transform ${AVATAR_SCALE_MS}ms linear`,
+              }}
+            >
+              <span
+                className="absolute rounded-full"
+                style={{
+                  width: "22.154px",
+                  height: "22.154px",
+                  backgroundColor: "rgba(255, 255, 255, 0.2)",
+                }}
+              />
+              <img
+                src="/icon-minimize.svg"
+                alt=""
+                width={16}
+                height={16}
+                className="relative"
+                style={{ width: "16px", height: "16px" }}
+              />
+            </button>
+          </div>
+          </div>
 
           {/* Chat thread scrolls under Nova */}
           <div
-            className="absolute inset-0 overflow-y-auto overscroll-y-none px-4 space-y-3"
+            className="absolute inset-0 overflow-y-auto overscroll-y-none px-4 flex flex-col"
             style={{ paddingTop: "256px", paddingBottom: "16px" }}
+            onScroll={minimizeOnScroll ? handleThreadScroll : undefined}
+            // Gestures that mean "I am scrolling this myself" — wheel/trackpad,
+            // touch drag, and scrollbar or keyboard interaction.
+            onWheel={minimizeOnScroll ? armUserScroll : undefined}
+            onTouchMove={minimizeOnScroll ? armUserScroll : undefined}
+            onPointerDown={minimizeOnScroll ? armUserScroll : undefined}
+            onKeyDown={minimizeOnScroll ? armUserScroll : undefined}
           >
+          {/* mt-auto bottom-anchors the thread: with only a message or two the
+              spare room collects above them, so the first line lands at the
+              bottom and later ones push it up — the usual chat feel. Once the
+              thread outgrows the viewport the auto margin collapses to 0 and it
+              scrolls normally. (Doing this with justify-end instead would clip
+              the top of an overflowing thread and make it unscrollable.) */}
+          <div className="mt-auto space-y-3">
           {messages.map((msg) => {
             const isUser = msg.role === "user";
             const isThisPlaying = playingMsgId === msg.id;
@@ -2085,7 +2397,7 @@ export default function NovaRiveLevelTest({
                       </div>
                     )}
 
-                    {interactive.type !== "loader" && interactive.type !== "report-loading" && interactive.type !== "grammar-loading" && interactive.type !== "plan" && msg.id !== "pretest-v2-question" && !interactive.tapped && (
+                    {interactive.type !== "loader" && interactive.type !== "report-loading" && interactive.type !== "grammar-loading" && interactive.type !== "plan" && msg.id !== introQuestionMsgId && !interactive.tapped && (
                       <button
                         onClick={() =>
                           interactive.type === "final"
@@ -2244,6 +2556,7 @@ export default function NovaRiveLevelTest({
           )}
 
           <div ref={bottomRef} />
+          </div>
         </div>
         </div>
 

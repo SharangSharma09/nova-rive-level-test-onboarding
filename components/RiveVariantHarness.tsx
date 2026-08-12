@@ -3,7 +3,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { StateMachineInputType, type Rive, type StateMachineInput } from "@rive-app/react-canvas";
 import { LevelSentence } from "@/lib/level-test-content";
-import NovaRiveLevelTest, { type AvatarVariant, type IntroVariant } from "@/components/NovaRiveLevelTest";
+import NovaRiveLevelTest, {
+  type AvatarVariant,
+  type IntroVariant,
+  type MinimizedShape,
+} from "@/components/NovaRiveLevelTest";
 
 // Must match RealisticFemaleAvatar.tsx's ARTBOARD/STATE_MACHINE constants.
 const REALISTIC_FEMALE_STATE_MACHINE = "InLesson";
@@ -18,9 +22,14 @@ export default function RiveVariantHarness({ language, sentences }: RiveVariantH
   const [rive, setRive] = useState<Rive | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [skipSignal, setSkipSignal] = useState<number | undefined>(undefined);
-  // Default to V2 on load. Prototype control only — not a user-facing
+  // Default to V1 on load. Prototype control only — not a user-facing
   // feature, hence outside the mobile UI like the other toggles.
   const [introVariant, setIntroVariant] = useState<IntroVariant>("v2");
+  // Silhouette the scale-down control collapses Nova into. Doesn't remount the
+  // flow — it only changes shape, so no key change and no script restart.
+  const [minimizedShape, setMinimizedShape] = useState<MinimizedShape>("circle");
+  // Whether reading back through the thread shrinks Nova out of the way.
+  const [minimizeOnScroll, setMinimizeOnScroll] = useState(true);
 
   const handleVariantChange = useCallback((variant: AvatarVariant) => {
     setAvatarVariant(variant);
@@ -91,7 +100,7 @@ export default function RiveVariantHarness({ language, sentences }: RiveVariantH
         className="fixed z-[100] flex rounded-full overflow-hidden border"
         style={{ top: "16px", right: "16px", borderColor: "#2B3044", backgroundColor: "#12151E" }}
       >
-        {(["v1", "v2"] as const).map((variant) => (
+        {(["v1", "v2", "v3"] as const).map((variant) => (
           <button
             key={variant}
             type="button"
@@ -107,6 +116,45 @@ export default function RiveVariantHarness({ language, sentences }: RiveVariantH
         ))}
       </div>
 
+      {/* Minimised silhouette picker — sits under the intro picker, outside the
+          mobile UI. Only affects what the scale-down control collapses into. */}
+      <div
+        className="fixed z-[100] flex rounded-full overflow-hidden border"
+        style={{ top: "60px", right: "16px", borderColor: "#2B3044", backgroundColor: "#12151E" }}
+      >
+        {(["rect", "circle"] as const).map((shape) => (
+          <button
+            key={shape}
+            type="button"
+            onClick={() => setMinimizedShape(shape)}
+            className="px-4 py-2 text-sm font-medium transition-colors"
+            style={{
+              backgroundColor: minimizedShape === shape ? "#75EABE" : "transparent",
+              color: minimizedShape === shape ? "#12151E" : "#8C94AE",
+            }}
+          >
+            {shape === "rect" ? "▭ Rect" : "◯ Circle"}
+          </button>
+        ))}
+      </div>
+
+      {/* Scroll-to-minimise toggle — whether reading back through the thread
+          shrinks Nova into the corner on its own. */}
+      <button
+        type="button"
+        onClick={() => setMinimizeOnScroll((v) => !v)}
+        className="fixed z-[100] px-4 py-2 rounded-full border text-sm font-medium transition-colors"
+        style={{
+          top: "104px",
+          right: "16px",
+          borderColor: "#2B3044",
+          backgroundColor: minimizeOnScroll ? "#75EABE" : "#12151E",
+          color: minimizeOnScroll ? "#12151E" : "#8C94AE",
+        }}
+      >
+        ↕ Scroll-minimise {minimizeOnScroll ? "on" : "off"}
+      </button>
+
       <NovaRiveLevelTest
         // Remounting on either toggle restarts the script from message 1 and
         // lets it narrate straight away, so a variant switch always shows the
@@ -118,6 +166,8 @@ export default function RiveVariantHarness({ language, sentences }: RiveVariantH
         onAvatarRiveInstance={setRive}
         skipToLastQuestionSignal={skipSignal}
         introVariant={introVariant}
+        minimizedShape={minimizedShape}
+        minimizeOnScroll={minimizeOnScroll}
       />
 
       {settingsOpen && avatarVariant === "realistic-female" && (

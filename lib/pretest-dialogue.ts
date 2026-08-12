@@ -196,8 +196,8 @@ export function buildV2IntroScript(occupation: string, goal: string): PretestLin
       id: "v2-question",
       kind: "cta",
       text: {
-        hi: `Batao — agar interviewer poochhe "Tell me about yourself," aap English mein kaise bologe?`,
-        ta: `Batao — agar interviewer poochhe "Tell me about yourself," aap English mein kaise bologe?`,
+        hi: `Batao — agar interviewer poochhe "Tell me about yourself," aap English mein kaise bolo ge?`,
+        ta: `Batao — agar interviewer poochhe "Tell me about yourself," aap English mein kaise bolo ge?`,
       },
       cta: { hi: "Tap to answer", ta: "Tap to answer" },
     },
@@ -229,18 +229,100 @@ export function buildV2IntroScript(occupation: string, goal: string): PretestLin
     // Lines 5-9 — same 3 MCQ calibration questions (+ reaction lines) as V1,
     // so the personalise-intro line's "bas kuch sawaal" promise is fulfilled.
     ...buildCalibrationQuestions(),
-    // Line 10 — Transition into the shared level-test flow. Reuses the "final"
-    // kind purely for its CTA-triggers-stage-change behavior; no bullets.
-    {
-      id: "v2-transition",
-      kind: "final",
-      text: {
-        hi: "✨ Ab main aapka ek chhota English level test loongi. Shuru karein?",
-        ta: "✨ Ab main aapka ek chhota English level test loongi. Shuru karein?",
-      },
-      bullets: [],
-      cta: { hi: "Let's start →", ta: "Let's start →" },
+    // Line 10 — Transition into the shared level-test flow.
+    buildLevelTestTransition(),
+  ];
+}
+
+// Transition into the shared level-test flow, used by both V2 and V3 so the
+// hand-off into the level test stays single-source. Reuses the "final" kind
+// purely for its CTA-triggers-stage-change behavior; no bullets.
+function buildLevelTestTransition(): PretestLine {
+  return {
+    id: "intro-transition",
+    kind: "final",
+    text: {
+      hi: "✨ Ab main aapka ek chhota English level test loongi. Shuru karein?",
+      ta: "✨ Ab main aapka ek chhota English level test loongi. Shuru karein?",
     },
+    bullets: [],
+    cta: { hi: "Let's start →", ta: "Let's start →" },
+  };
+}
+
+// ─── V3 intro ────────────────────────────────────────────────────────────────
+// Identical to V2 except for Message 2 (an open-ended "why do you want to
+// improve English" question instead of "tell me about yourself") and Message 3
+// (which echoes back the goal the grader extracted from that answer). The
+// calibration questions and the level-test transition are the same shared
+// pieces V2 uses — only the intro branches.
+
+// Message 3, Part A — the capability reveal, identical on both branches.
+const V3_ACK_PART_A =
+  "Dekha? Jab bhi aap English bolo, main aise hi turant aapki galtiyan sudhaar dungi — har baar.";
+
+/**
+ * Message 3's full copy. `goalTheme` is the short Hinglish phrase the grader
+ * extracted, or null when it wasn't confident enough to name a reason.
+ *
+ * The null branch is not a nicety — echoing a goal the user never stated turns
+ * the "it understood me" beat into "it didn't listen", so an unconfident grade
+ * must fall back to acknowledging without naming anything.
+ */
+export function buildV3AckText(goalTheme: string | null): string {
+  const partB = goalTheme
+    ? `Aur mujhe samajh aa gaya — aap ${goalTheme} English improve karna chahte ho. Ab isi ko dhyaan mein rakh ke, chaliye aapke liye ek personalised plan banati hoon. Bas kuch sawaal aur ek chhota level test. Shuru karein?`
+    : "Aur aapki baat samajh gayi main. Chaliye ab aapke liye ek plan banati hoon — bas kuch sawaal aur ek chhota level test. Shuru karein?";
+  return `${V3_ACK_PART_A}\n\n${partB}`;
+}
+
+export const V3_ACK_LINE_ID = "v3-ack";
+export const V3_QUESTION_LINE_ID = "v3-question";
+
+export function buildV3IntroScript(): PretestLine[] {
+  return [
+    // Message 1 — Nova intro (same copy as V2).
+    {
+      id: "v3-greeting",
+      kind: "auto",
+      text: {
+        hi: "👋 Hi! Main hoon Nova AI. Aapki 24/7 English teacher.",
+        ta: "👋 Hi! Main hoon Nova AI. Aapki 24/7 English teacher.",
+      },
+      preDelayMs: 0,
+    },
+    // Message 2 — the open-ended "why". Kind "cta" is reused for its "wait
+    // after narration, don't auto-advance" behavior; no button renders (it's
+    // suppressed in NovaRiveLevelTest.tsx) — the answer bar appears instead and
+    // the reply is graded via /api/nova-onboarding/correct-and-extract.
+    {
+      id: V3_QUESTION_LINE_ID,
+      kind: "cta",
+      text: {
+        hi: "Mujhe ek cheez jaanni hai — English aapke liye itni important kyun hai? Thoda English mein bata do, do-teen line.",
+        ta: "Mujhe ek cheez jaanni hai — English aapke liye itni important kyun hai? Thoda English mein bata do, do-teen line.",
+      },
+      cta: { hi: "Tap to answer", ta: "Tap to answer" },
+    },
+    // Message 3 — capability reveal + goal acknowledgment. The text here is the
+    // unconfident fallback; NovaRiveLevelTest swaps in the goal-naming variant
+    // when the grader returns goal_confident: true.
+    {
+      id: V3_ACK_LINE_ID,
+      kind: "cta",
+      text: {
+        hi: buildV3AckText(null),
+        ta: buildV3AckText(null),
+      },
+      cta: {
+        hi: "Yes, personalise my English course",
+        ta: "Yes, personalise my English course",
+      },
+    },
+    // Same 3 MCQ calibration questions as V1/V2 — the ack line promises
+    // "bas kuch sawaal", so they run here too.
+    ...buildCalibrationQuestions(),
+    buildLevelTestTransition(),
   ];
 }
 
